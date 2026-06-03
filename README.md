@@ -100,6 +100,12 @@ docs_watermark/
     └── contract_watermark.pdf
 ```
 
+## License
+
+GPL v3 — see [LICENSE](LICENSE)
+
+Any modification or project integrating filigranez must remain open source under the same license.
+
 ## Nix / NixOS
 
 A `filigranez.nix` flake is included for reproducible builds with all dependencies pinned.
