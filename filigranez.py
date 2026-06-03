@@ -80,13 +80,21 @@ def load_font(size: int) -> ImageFont.FreeTypeFont:
 
 
 def make_watermark_layer(
+    width: int, height: int, text: str, opacity: float, rotation: float, font_size: int,
+    wave: bool = False, wave_amplitude: int = 40, wave_length: int = 300,
+) -> Image.Image:
+    if wave:
+        return _make_wave_layer(width, height, text, opacity, font_size, wave_amplitude, wave_length)
+    return _make_grid_layer(width, height, text, opacity, rotation, font_size)
+
+
+def _make_grid_layer(
     width: int, height: int, text: str, opacity: float, rotation: float, font_size: int
 ) -> Image.Image:
-    """Return a tiled, rotated watermark as an RGBA layer matching the page size."""
+    """Tiled grid watermark, rotated at the given angle."""
     font = load_font(font_size)
     alpha = int(255 * opacity)
 
-    # Large canvas to avoid cropping after rotation
     diag = int(math.sqrt(width ** 2 + height ** 2)) * 2
     canvas = Image.new("RGBA", (diag, diag), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
@@ -103,17 +111,56 @@ def make_watermark_layer(
             draw.text((x - diag // 2, y - diag // 2), text, font=font, fill=(220, 20, 20, alpha))
 
     rotated = canvas.rotate(rotation, expand=False)
-
     cx = (diag - width) // 2
     cy = (diag - height) // 2
     return rotated.crop((cx, cy, cx + width, cy + height))
 
 
+def _make_wave_layer(
+    width: int, height: int, text: str, opacity: float, font_size: int,
+    wave_amplitude: int, wave_length: int,
+) -> Image.Image:
+    """Sinusoidal wave watermark — each row oscillates vertically via sin(x)."""
+    font = load_font(font_size)
+    alpha = int(255 * opacity)
+
+    # Extended canvas to avoid clipping at edges during wave oscillation
+    margin_y = wave_amplitude + font_size
+    margin_x = font_size * 4
+    canvas = Image.new("RGBA", (width + margin_x * 2, height + margin_y * 2), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+
+    spacing_x = tw + max(40, tw // 2)
+    spacing_y = th + max(40, th * 2)
+
+    row = 0
+    for base_y in range(-margin_y, height + margin_y, spacing_y):
+        for x in range(-margin_x, width + margin_x, spacing_x):
+            # Alternate phase per row: creates interlocking wave pattern
+            phase = row * math.pi
+            wave_offset = int(wave_amplitude * math.sin(2 * math.pi * x / wave_length + phase))
+            draw.text(
+                (x + margin_x, base_y + wave_offset + margin_y),
+                text, font=font, fill=(220, 20, 20, alpha),
+            )
+        row += 1
+
+    return canvas.crop((margin_x, margin_y, margin_x + width, margin_y + height))
+
+
 def watermark_page(
-    page_image: Image.Image, text: str, opacity: float, rotation: float, font_size: int
+    page_image: Image.Image, text: str, opacity: float, rotation: float, font_size: int,
+    wave: bool = False, wave_amplitude: int = 40, wave_length: int = 300,
 ) -> Image.Image:
     page = page_image.convert("RGBA")
-    layer = make_watermark_layer(page.width, page.height, text, opacity, rotation, font_size)
+    layer = make_watermark_layer(
+        page.width, page.height, text, opacity, rotation, font_size,
+        wave, wave_amplitude, wave_length,
+    )
     return Image.alpha_composite(page, layer).convert("RGB")
 
 
@@ -126,6 +173,9 @@ def watermark_pdf(
     dpi: int,
     font_size: Optional[int],
     poppler_path: Optional[str] = None,
+    wave: bool = False,
+    wave_amplitude: int = 40,
+    wave_length: int = 300,
 ) -> None:
     info(f"Loading  : {C.WHITE}{C.BOLD}{input_path}{C.RESET}")
 
@@ -135,16 +185,25 @@ def watermark_pdf(
 
     pages = pdf2image.convert_from_path(str(input_path), **kwargs)
     info(f"Pages    : {C.WHITE}{C.BOLD}{len(pages)}{C.RESET}")
-    info(f"Opacity  : {C.WHITE}{C.BOLD}{int(opacity * 100)}%{C.RESET}  │  "
-         f"Rotation: {C.WHITE}{C.BOLD}{rotation}°{C.RESET}  │  "
-         f"DPI: {C.WHITE}{C.BOLD}{dpi}{C.RESET}")
+    if wave:
+        info(f"Opacity  : {C.WHITE}{C.BOLD}{int(opacity * 100)}%{C.RESET}  │  "
+             f"Mode: {C.CYAN}{C.BOLD}wave{C.RESET}  │  "
+             f"Amplitude: {C.WHITE}{C.BOLD}{wave_amplitude}px{C.RESET}  │  "
+             f"Length: {C.WHITE}{C.BOLD}{wave_length}px{C.RESET}  │  "
+             f"DPI: {C.WHITE}{C.BOLD}{dpi}{C.RESET}")
+    else:
+        info(f"Opacity  : {C.WHITE}{C.BOLD}{int(opacity * 100)}%{C.RESET}  │  "
+             f"Rotation: {C.WHITE}{C.BOLD}{rotation}°{C.RESET}  │  "
+             f"DPI: {C.WHITE}{C.BOLD}{dpi}{C.RESET}")
 
     watermarked = []
     for i, page in enumerate(pages, 1):
         auto_font = font_size or max(24, page.width // 18)
         step(f"Page {C.WHITE}{C.BOLD}{i}/{len(pages)}{C.RESET} "
              f"{C.DIM}({page.width}x{page.height}px){C.RESET}")
-        watermarked.append(watermark_page(page, text, opacity, rotation, auto_font))
+        watermarked.append(
+            watermark_page(page, text, opacity, rotation, auto_font, wave, wave_amplitude, wave_length)
+        )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         img_paths = []
@@ -201,8 +260,14 @@ Examples:
                         metavar="INT",    help="Font size in pixels (default: auto)")
     parser.add_argument("--suffix-name",  "-s", type=str,   default="watermark",
                         metavar="SUFFIX", help="Suffix appended to filename (default: watermark)")
-    parser.add_argument("--poppler-path", "-p", type=str,   default=None,
-                        metavar="PATH",   help="Path to poppler bin directory (Windows)")
+    parser.add_argument("--poppler-path",   "-p", type=str,   default=None,
+                        metavar="PATH",    help="Path to poppler bin directory (Windows)")
+    parser.add_argument("--wave",           "-w", action="store_true",
+                                           help="Wave tiling mode instead of rotated grid")
+    parser.add_argument("--wave-amplitude", "-wa", type=int, default=40,
+                        metavar="INT",     help="Wave amplitude in pixels (default: 40)")
+    parser.add_argument("--wave-length",    "-wl", type=int, default=300,
+                        metavar="INT",     help="Wave length in pixels (default: 300)")
 
     args = parser.parse_args()
 
@@ -228,12 +293,14 @@ Examples:
             out = output_dir / relative.parent / f"{pdf.stem}_{args.suffix_name}.pdf"
             out.parent.mkdir(parents=True, exist_ok=True)
             watermark_pdf(pdf, args.text, str(out), args.opacity, args.rotation,
-                          args.dpi, args.font_size, args.poppler_path)
+                          args.dpi, args.font_size, args.poppler_path,
+                          args.wave, args.wave_amplitude, args.wave_length)
 
     elif input_path.is_file():
         out = build_output_path(input_path, args.output, args.suffix_name)
         watermark_pdf(input_path, args.text, out, args.opacity, args.rotation,
-                      args.dpi, args.font_size, args.poppler_path)
+                      args.dpi, args.font_size, args.poppler_path,
+                      args.wave, args.wave_amplitude, args.wave_length)
 
     else:
         error(f"'{args.input}' is not a valid file or directory")
