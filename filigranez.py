@@ -32,6 +32,30 @@ except ImportError as e:
     print("Install with: pip install Pillow pdf2image img2pdf")
     sys.exit(1)
 
+try:
+    import colorama
+    colorama.init(autoreset=True)
+except ImportError:
+    pass  # colorama is optional — ANSI codes work natively on Linux/Mac
+
+
+class C:
+    RESET  = "\033[0m"
+    BOLD   = "\033[1m"
+    DIM    = "\033[2m"
+    GREEN  = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE   = "\033[34m"
+    CYAN   = "\033[36m"
+    WHITE  = "\033[97m"
+    RED    = "\033[31m"
+
+def info(msg: str)  -> None: print(f"{C.GREEN}{C.BOLD}[+]{C.RESET} {msg}")
+def warn(msg: str)  -> None: print(f"{C.YELLOW}{C.BOLD}[!]{C.RESET} {C.YELLOW}{msg}{C.RESET}")
+def error(msg: str) -> None: print(f"{C.RED}{C.BOLD}[✗]{C.RESET} {C.RED}{msg}{C.RESET}")
+def step(msg: str)  -> None: print(f"    {C.CYAN}›{C.RESET} {msg}")
+def sep()           -> None: print(f"{C.DIM}{'=' * 50}{C.RESET}")
+
 
 FONT_PATHS = [
     # Linux
@@ -51,7 +75,7 @@ def load_font(size: int) -> ImageFont.FreeTypeFont:
     for path in FONT_PATHS:
         if os.path.exists(path):
             return ImageFont.truetype(path, size)
-    print(f"[!] Warning: no TrueType font found, falling back to default (text may appear small)")
+    warn("No TrueType font found, falling back to default (text may appear small)")
     return ImageFont.load_default()
 
 
@@ -103,20 +127,23 @@ def watermark_pdf(
     font_size: Optional[int],
     poppler_path: Optional[str] = None,
 ) -> None:
-    print(f"[+] Loading  : {input_path}")
+    info(f"Loading  : {C.WHITE}{C.BOLD}{input_path}{C.RESET}")
 
     kwargs = {"dpi": dpi}
     if poppler_path:
         kwargs["poppler_path"] = poppler_path
 
     pages = pdf2image.convert_from_path(str(input_path), **kwargs)
-    print(f"[+] Pages    : {len(pages)}")
-    print(f"[+] Opacity  : {int(opacity * 100)}%  |  Rotation: {rotation}°  |  DPI: {dpi}")
+    info(f"Pages    : {C.WHITE}{C.BOLD}{len(pages)}{C.RESET}")
+    info(f"Opacity  : {C.WHITE}{C.BOLD}{int(opacity * 100)}%{C.RESET}  │  "
+         f"Rotation: {C.WHITE}{C.BOLD}{rotation}°{C.RESET}  │  "
+         f"DPI: {C.WHITE}{C.BOLD}{dpi}{C.RESET}")
 
     watermarked = []
     for i, page in enumerate(pages, 1):
         auto_font = font_size or max(24, page.width // 18)
-        print(f"    Page {i}/{len(pages)} ({page.width}x{page.height}px)")
+        step(f"Page {C.WHITE}{C.BOLD}{i}/{len(pages)}{C.RESET} "
+             f"{C.DIM}({page.width}x{page.height}px){C.RESET}")
         watermarked.append(watermark_page(page, text, opacity, rotation, auto_font))
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -129,7 +156,7 @@ def watermark_pdf(
         with open(output_path, "wb") as f:
             f.write(img2pdf.convert(img_paths))
 
-    print(f"[+] Output   : {output_path}")
+    info(f"Output   : {C.BLUE}{C.BOLD}{output_path}{C.RESET}")
 
 
 def build_output_path(input_path: Path, output_arg: Optional[str], suffix: str) -> str:
@@ -180,7 +207,7 @@ Examples:
     args = parser.parse_args()
 
     if not 0.0 <= args.opacity <= 1.0:
-        print("Error: --opacity must be between 0.0 and 1.0")
+        error("--opacity must be between 0.0 and 1.0")
         sys.exit(1)
 
     input_path = Path(args.input)
@@ -188,14 +215,15 @@ Examples:
     if input_path.is_dir():
         pdfs = collect_pdfs(input_path)
         if not pdfs:
-            print(f"No PDF files found in {input_path}")
+            error(f"No PDF files found in {input_path}")
             sys.exit(1)
         output_dir = input_path.parent / f"{input_path.name}_{args.suffix_name}"
         output_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[+] Output dir : {output_dir}")
-        print(f"[+] Files found: {len(pdfs)}")
+        info(f"Output dir : {C.BLUE}{C.BOLD}{output_dir}{C.RESET}")
+        info(f"Files found: {C.WHITE}{C.BOLD}{len(pdfs)}{C.RESET}")
         for pdf in pdfs:
-            print(f"\n{'='*50}")
+            print()
+            sep()
             relative = pdf.relative_to(input_path)
             out = output_dir / relative.parent / f"{pdf.stem}_{args.suffix_name}.pdf"
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -208,7 +236,7 @@ Examples:
                       args.dpi, args.font_size, args.poppler_path)
 
     else:
-        print(f"Error: '{args.input}' is not a valid file or directory")
+        error(f"'{args.input}' is not a valid file or directory")
         sys.exit(1)
 
 
