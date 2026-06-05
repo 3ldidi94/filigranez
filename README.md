@@ -2,6 +2,8 @@
 
 PDF watermarking tool. The watermark is baked directly into the page pixels — it cannot be removed by editing PDF objects or deleting layers.
 
+![Before / After](example.png)
+
 ## How it works
 
 1. Each PDF page is rasterized into an image (via poppler)
@@ -54,9 +56,6 @@ filigranez.py <input> <text> [output] [options]
 | `--font-size` | `-f` | auto | Font size in pixels (default: page width / 18) |
 | `--suffix-name` | `-s` | `watermark` | Suffix appended to output filename(s) |
 | `--poppler-path` | `-p` | — | Path to poppler `bin/` directory (Windows) |
-| `--wave` | `-w` | off | Wave tiling mode instead of rotated grid |
-| `--wave-amplitude` | `-wa` | `40` | Wave amplitude in pixels |
-| `--wave-length` | `-wl` | `300` | Wave length in pixels |
 
 ## Examples
 
@@ -81,39 +80,7 @@ python filigranez.py document.pdf "CONFIDENTIEL" --dpi 300
 
 # Windows with explicit poppler path
 python filigranez.py document.pdf "DRAFT" --poppler-path "C:/poppler/bin"
-
-# Wave mode
-python filigranez.py document.pdf "CONFIDENTIEL" --wave
-
-# Wave with custom amplitude and length
-python filigranez.py document.pdf "DRAFT" --wave --wave-amplitude 80 --wave-length 400
 ```
-
-## Tiling modes
-
-### Grid (default)
-
-Text is tiled in a regular grid and rotated at the given angle (`--rotation`).
-
-```
-DRAFT    DRAFT    DRAFT
-   DRAFT    DRAFT    DRAFT
-DRAFT    DRAFT    DRAFT
-```
-
-### Wave (`--wave`)
-
-Text rows follow a sinusoidal pattern. Adjacent rows have opposite phase, creating an interlocking wave.
-
-```
-  DRAFT    DRAFT    DRAFT
-DRAFT    DRAFT    DRAFT
-  DRAFT    DRAFT    DRAFT
-DRAFT    DRAFT    DRAFT
-```
-
-- `--wave-amplitude` controls the height of the oscillation
-- `--wave-length` controls how wide each wave cycle is
 
 ## Directory mode
 
