@@ -4,6 +4,20 @@ PDF watermarking tool. The watermark is baked directly into the page pixels — 
 
 ![Before / After](example.png)
 
+```bash
+python filigranez.py document.pdf "CONFIDENTIEL"
+```
+
+---
+
+![Before / After — custom args](example2.png)
+
+```bash
+python filigranez.py document.pdf "ANNULÉ" --opacity 0.75 --rotation 20 --font-size 38
+```
+
+---
+
 ## How it works
 
 1. Each PDF page is rasterized into an image (via poppler)
