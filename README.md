@@ -18,6 +18,12 @@ python filigranez.py document.pdf "ANNULÉ" --opacity 0.75 --rotation 20 --font-
 
 ---
 
+## Output example
+
+![Output example](output-example.png)
+
+---
+
 ## How it works
 
 1. Each PDF page is rasterized into an image (via poppler)
