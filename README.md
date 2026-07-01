@@ -10,10 +10,10 @@ python filigranez.py document.pdf "CONFIDENTIEL"
 
 ---
 
-![Before / After — custom args](example2.png)
+![Before / After — custom color](example2.png)
 
 ```bash
-python filigranez.py document.pdf "ANNULÉ" --opacity 0.75 --rotation 20 --font-size 38
+python filigranez.py document.pdf "BROUILLON" --color "#1E6FFF" --rotation 30 --font-size 38
 ```
 
 ---
@@ -39,6 +39,8 @@ The resulting PDF contains only raster images — no text objects, no layers, no
 ```bash
 pip install -r requirements.txt
 ```
+
+`colorama` (colored output on Windows) and `tqdm` (progress bars) are optional — the tool runs without them, falling back to plain per-page log lines.
 
 ### System — Linux
 
@@ -74,8 +76,12 @@ filigranez.py <input> <text> [output] [options]
 | `--rotation` | `-r` | `45` | Rotation angle in degrees |
 | `--dpi` | `-d` | `200` | Rendering resolution (higher = better quality, larger file) |
 | `--font-size` | `-f` | auto | Font size in pixels (default: page width / 18) |
+| `--color` | `-c` | `#DC1414` | Watermark text color — `#RRGGBB` or a color name (e.g. `red`, `navy`) |
+| `--quality` | `-q` | `95` | JPEG quality 1–95 (lower = smaller file, more compression) |
 | `--suffix-name` | `-s` | `watermark` | Suffix appended to output filename(s) |
 | `--poppler-path` | `-p` | — | Path to poppler `bin/` directory (Windows) |
+
+Output page dimensions are preserved (the rendering DPI is embedded so the resulting PDF matches the original page size).
 
 ## Examples
 
@@ -85,6 +91,13 @@ python filigranez.py document.pdf "CONFIDENTIEL"
 
 # Custom opacity and rotation
 python filigranez.py document.pdf "DRAFT" --opacity 0.3 --rotation 30
+
+# Custom watermark color (hex or name)
+python filigranez.py document.pdf "BROUILLON" --color "#1E6FFF"
+python filigranez.py document.pdf "SECRET" --color navy
+
+# Smaller output file (more JPEG compression)
+python filigranez.py document.pdf "INTERNE" --quality 70
 
 # Explicit output filename
 python filigranez.py document.pdf "SECRET" output.pdf
@@ -109,6 +122,7 @@ When the input is a directory, the tool:
 - Preserves the original directory structure in the output
 - Creates an output directory named `<input_dir>_<suffix>`
 - Leaves original files untouched
+- Skips unreadable/corrupt PDFs and keeps going (a summary of failures is printed, and the exit code is non-zero if any file failed)
 
 ```
 docs/

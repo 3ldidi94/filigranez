@@ -15,6 +15,8 @@
           pillow
           pdf2image
           img2pdf
+          colorama  # optional — colored output
+          tqdm      # optional — progress bars
         ]);
 
         filigranez = pkgs.writeShellScriptBin "filigranez" ''
