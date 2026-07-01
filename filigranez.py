@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageColor, ImageDraw, ImageFont
     import pdf2image
     import img2pdf
 except ImportError as e:
@@ -38,6 +38,12 @@ try:
 except ImportError:
     pass  # colorama is optional — ANSI codes work natively on Linux/Mac
 
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False  # progress bars are optional; falls back to per-page lines
+
 
 class C:
     RESET  = "\033[0m"
@@ -50,11 +56,18 @@ class C:
     WHITE  = "\033[97m"
     RED    = "\033[31m"
 
-def info(msg: str)  -> None: print(f"{C.GREEN}{C.BOLD}[+]{C.RESET} {msg}")
-def warn(msg: str)  -> None: print(f"{C.YELLOW}{C.BOLD}[!]{C.RESET} {C.YELLOW}{msg}{C.RESET}")
-def error(msg: str) -> None: print(f"{C.RED}{C.BOLD}[✗]{C.RESET} {C.RED}{msg}{C.RESET}")
-def step(msg: str)  -> None: print(f"    {C.CYAN}›{C.RESET} {msg}")
-def sep()           -> None: print(f"{C.DIM}{'=' * 50}{C.RESET}")
+def _out(text: str = "") -> None:
+    # Route through tqdm.write when bars are active so they aren't clobbered.
+    if HAS_TQDM:
+        tqdm.write(text)
+    else:
+        print(text)
+
+def info(msg: str)  -> None: _out(f"{C.GREEN}{C.BOLD}[+]{C.RESET} {msg}")
+def warn(msg: str)  -> None: _out(f"{C.YELLOW}{C.BOLD}[!]{C.RESET} {C.YELLOW}{msg}{C.RESET}")
+def error(msg: str) -> None: _out(f"{C.RED}{C.BOLD}[✗]{C.RESET} {C.RED}{msg}{C.RESET}")
+def step(msg: str)  -> None: _out(f"    {C.CYAN}›{C.RESET} {msg}")
+def sep()           -> None: _out(f"{C.DIM}{'=' * 50}{C.RESET}")
 
 
 FONT_PATHS = [
@@ -75,15 +88,22 @@ def load_font(size: int) -> ImageFont.FreeTypeFont:
     for path in FONT_PATHS:
         if os.path.exists(path):
             return ImageFont.truetype(path, size)
-    warn("No TrueType font found, falling back to default (text may appear small)")
-    return ImageFont.load_default()
+    warn("No TrueType font found, falling back to default")
+    try:
+        # Pillow >= 10 honours size for the built-in font; older versions don't.
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        warn("Pillow < 10: default font ignores size, text may appear small")
+        return ImageFont.load_default()
 
 
 def make_watermark_layer(
-    width: int, height: int, text: str, opacity: float, rotation: float, font_size: int
+    width: int, height: int, text: str, opacity: float, rotation: float,
+    font_size: int, color: tuple,
 ) -> Image.Image:
     font = load_font(font_size)
     alpha = int(255 * opacity)
+    fill = (*color, alpha)
 
     # Canvas just large enough to cover the page after any rotation: the
     # diagonal is the minimum size, plus a small margin so tiling reaches the
@@ -99,18 +119,20 @@ def make_watermark_layer(
 
     for base_y in range(-spacing_y, diag + spacing_y, spacing_y):
         for base_x in range(-spacing_x, diag + spacing_x, spacing_x):
-            draw.text((base_x, base_y), text, font=font, fill=(220, 20, 20, alpha))
+            draw.text((base_x, base_y), text, font=font, fill=fill)
 
-    rotated = canvas.rotate(rotation, expand=False)
+    rotated = canvas.rotate(rotation, expand=False, resample=Image.BICUBIC)
     cx, cy = (diag - width) // 2, (diag - height) // 2
     return rotated.crop((cx, cy, cx + width, cy + height))
 
 
 def watermark_page(
-    page_image: Image.Image, text: str, opacity: float, rotation: float, font_size: int
+    page_image: Image.Image, text: str, opacity: float, rotation: float,
+    font_size: int, color: tuple,
 ) -> Image.Image:
     page = page_image.convert("RGBA")
-    layer = make_watermark_layer(page.width, page.height, text, opacity, rotation, font_size)
+    layer = make_watermark_layer(
+        page.width, page.height, text, opacity, rotation, font_size, color)
     return Image.alpha_composite(page, layer).convert("RGB")
 
 
@@ -122,6 +144,8 @@ def watermark_pdf(
     rotation: float,
     dpi: int,
     font_size: Optional[int],
+    color: tuple,
+    quality: int,
     poppler_path: Optional[str] = None,
 ) -> None:
     info(f"Loading  : {C.WHITE}{C.BOLD}{input_path}{C.RESET}")
@@ -146,11 +170,17 @@ def watermark_pdf(
          f"DPI: {C.WHITE}{C.BOLD}{dpi}{C.RESET}")
 
     watermarked = []
-    for i, page in enumerate(pages, 1):
+    page_iter = enumerate(pages, 1)
+    if HAS_TQDM:
+        page_iter = tqdm(page_iter, total=len(pages), desc="  Pages",
+                         unit="p", leave=False, position=1)
+    for i, page in page_iter:
         auto_font = font_size or max(24, page.width // 18)
-        step(f"Page {C.WHITE}{C.BOLD}{i}/{len(pages)}{C.RESET} "
-             f"{C.DIM}({page.width}x{page.height}px){C.RESET}")
-        watermarked.append(watermark_page(page, text, opacity, rotation, auto_font))
+        if not HAS_TQDM:
+            step(f"Page {C.WHITE}{C.BOLD}{i}/{len(pages)}{C.RESET} "
+                 f"{C.DIM}({page.width}x{page.height}px){C.RESET}")
+        watermarked.append(
+            watermark_page(page, text, opacity, rotation, auto_font, color))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         img_paths = []
@@ -158,7 +188,7 @@ def watermark_pdf(
             path = os.path.join(tmpdir, f"page_{i:04d}.jpg")
             # Embed the DPI so img2pdf sizes the PDF page correctly. Without it
             # img2pdf assumes 96 DPI and pages come out physically oversized.
-            page.save(path, "JPEG", quality=95, dpi=(dpi, dpi))
+            page.save(path, "JPEG", quality=quality, dpi=(dpi, dpi))
             img_paths.append(path)
 
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
@@ -209,6 +239,10 @@ Examples:
                         metavar="INT",    help="Rendering DPI (default: 200)")
     parser.add_argument("--font-size",    "-f", type=int,   default=None,
                         metavar="INT",    help="Font size in pixels (default: auto)")
+    parser.add_argument("--color",        "-c", type=str,   default="#DC1414",
+                        metavar="COLOR",  help="Text color: #RRGGBB or name (default: #DC1414)")
+    parser.add_argument("--quality",      "-q", type=int,   default=95,
+                        metavar="INT",    help="JPEG quality 1–95 (default: 95)")
     parser.add_argument("--suffix-name",  "-s", type=str,   default="watermark",
                         metavar="SUFFIX", help="Suffix appended to filename (default: watermark)")
     parser.add_argument("--poppler-path", "-p", type=str,   default=None,
@@ -228,6 +262,14 @@ Examples:
     if not args.text.strip():
         error("watermark text must not be empty")
         sys.exit(1)
+    if not 1 <= args.quality <= 95:
+        error("--quality must be between 1 and 95")
+        sys.exit(1)
+    try:
+        color = ImageColor.getrgb(args.color)[:3]
+    except ValueError:
+        error(f"invalid --color '{args.color}' (use #RRGGBB or a color name)")
+        sys.exit(1)
 
     input_path = Path(args.input)
 
@@ -243,20 +285,22 @@ Examples:
         info(f"Output dir : {C.BLUE}{C.BOLD}{output_dir}{C.RESET}")
         info(f"Files found: {C.WHITE}{C.BOLD}{len(pdfs)}{C.RESET}")
         failures = 0
-        for pdf in pdfs:
-            print()
+        pdf_iter = tqdm(pdfs, desc="Files", unit="f", position=0) if HAS_TQDM else pdfs
+        for pdf in pdf_iter:
+            _out()
             sep()
             relative = pdf.relative_to(input_path)
             out = output_dir / relative.parent / f"{pdf.stem}_{args.suffix_name}.pdf"
             out.parent.mkdir(parents=True, exist_ok=True)
             try:
                 watermark_pdf(pdf, args.text, str(out), args.opacity, args.rotation,
-                              args.dpi, args.font_size, args.poppler_path)
+                              args.dpi, args.font_size, color, args.quality,
+                              args.poppler_path)
             except RuntimeError as e:
                 error(f"Skipping {pdf}: {e}")
                 failures += 1
         if failures:
-            print()
+            _out()
             warn(f"{failures}/{len(pdfs)} file(s) failed")
             sys.exit(1)
 
@@ -267,7 +311,8 @@ Examples:
             sys.exit(1)
         try:
             watermark_pdf(input_path, args.text, out, args.opacity, args.rotation,
-                          args.dpi, args.font_size, args.poppler_path)
+                          args.dpi, args.font_size, color, args.quality,
+                          args.poppler_path)
         except RuntimeError as e:
             error(str(e))
             sys.exit(1)
