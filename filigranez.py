@@ -85,7 +85,10 @@ def make_watermark_layer(
     font = load_font(font_size)
     alpha = int(255 * opacity)
 
-    diag = int(math.sqrt(width ** 2 + height ** 2)) * 2
+    # Canvas just large enough to cover the page after any rotation: the
+    # diagonal is the minimum size, plus a small margin so tiling reaches the
+    # corners. Avoids the previous ×2 blow-up (4× memory, PIL bomb errors).
+    diag = int(math.sqrt(width ** 2 + height ** 2)) + 2 * font_size
     canvas = Image.new("RGBA", (diag, diag), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
 
@@ -127,7 +130,16 @@ def watermark_pdf(
     if poppler_path:
         kwargs["poppler_path"] = poppler_path
 
-    pages = pdf2image.convert_from_path(str(input_path), **kwargs)
+    try:
+        pages = pdf2image.convert_from_path(str(input_path), **kwargs)
+    except pdf2image.exceptions.PDFInfoNotInstalledError:
+        raise RuntimeError(
+            "poppler not found. Install it (e.g. 'apt install poppler-utils') "
+            "or pass --poppler-path to its bin directory."
+        )
+    except (pdf2image.exceptions.PDFPageCountError,
+            pdf2image.exceptions.PDFSyntaxError) as e:
+        raise RuntimeError(f"cannot read PDF ({e})")
     info(f"Pages    : {C.WHITE}{C.BOLD}{len(pages)}{C.RESET}")
     info(f"Opacity  : {C.WHITE}{C.BOLD}{int(opacity * 100)}%{C.RESET}  │  "
          f"Rotation: {C.WHITE}{C.BOLD}{rotation}°{C.RESET}  │  "
@@ -144,9 +156,12 @@ def watermark_pdf(
         img_paths = []
         for i, page in enumerate(watermarked):
             path = os.path.join(tmpdir, f"page_{i:04d}.jpg")
-            page.save(path, "JPEG", quality=95)
+            # Embed the DPI so img2pdf sizes the PDF page correctly. Without it
+            # img2pdf assumes 96 DPI and pages come out physically oversized.
+            page.save(path, "JPEG", quality=95, dpi=(dpi, dpi))
             img_paths.append(path)
 
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         with open(output_path, "wb") as f:
             f.write(img2pdf.convert(img_paths))
 
@@ -160,11 +175,12 @@ def build_output_path(input_path: Path, output_arg: Optional[str], suffix: str) 
 
 
 def collect_pdfs(directory: Path) -> list:
-    """Collect PDF files deduplicating case-insensitive matches (Windows NTFS safety)."""
+    """Collect .pdf files recursively, deduplicating by resolved path (handles
+    symlinks and, on case-insensitive filesystems, case-variant duplicates)."""
     seen = set()
     pdfs = []
     for p in sorted(directory.rglob("*")):
-        if p.suffix.lower() == ".pdf" and p.resolve() not in seen:
+        if p.is_file() and p.suffix.lower() == ".pdf" and p.resolve() not in seen:
             seen.add(p.resolve())
             pdfs.append(p)
     return pdfs
@@ -203,10 +219,21 @@ Examples:
     if not 0.0 <= args.opacity <= 1.0:
         error("--opacity must be between 0.0 and 1.0")
         sys.exit(1)
+    if args.dpi <= 0:
+        error("--dpi must be a positive integer")
+        sys.exit(1)
+    if args.font_size is not None and args.font_size <= 0:
+        error("--font-size must be a positive integer")
+        sys.exit(1)
+    if not args.text.strip():
+        error("watermark text must not be empty")
+        sys.exit(1)
 
     input_path = Path(args.input)
 
     if input_path.is_dir():
+        if args.output:
+            warn("output argument is ignored in directory mode")
         pdfs = collect_pdfs(input_path)
         if not pdfs:
             error(f"No PDF files found in {input_path}")
@@ -215,19 +242,35 @@ Examples:
         output_dir.mkdir(parents=True, exist_ok=True)
         info(f"Output dir : {C.BLUE}{C.BOLD}{output_dir}{C.RESET}")
         info(f"Files found: {C.WHITE}{C.BOLD}{len(pdfs)}{C.RESET}")
+        failures = 0
         for pdf in pdfs:
             print()
             sep()
             relative = pdf.relative_to(input_path)
             out = output_dir / relative.parent / f"{pdf.stem}_{args.suffix_name}.pdf"
             out.parent.mkdir(parents=True, exist_ok=True)
-            watermark_pdf(pdf, args.text, str(out), args.opacity, args.rotation,
-                          args.dpi, args.font_size, args.poppler_path)
+            try:
+                watermark_pdf(pdf, args.text, str(out), args.opacity, args.rotation,
+                              args.dpi, args.font_size, args.poppler_path)
+            except RuntimeError as e:
+                error(f"Skipping {pdf}: {e}")
+                failures += 1
+        if failures:
+            print()
+            warn(f"{failures}/{len(pdfs)} file(s) failed")
+            sys.exit(1)
 
     elif input_path.is_file():
         out = build_output_path(input_path, args.output, args.suffix_name)
-        watermark_pdf(input_path, args.text, out, args.opacity, args.rotation,
-                      args.dpi, args.font_size, args.poppler_path)
+        if Path(out).resolve() == input_path.resolve():
+            error("output path is the same as the input; refusing to overwrite")
+            sys.exit(1)
+        try:
+            watermark_pdf(input_path, args.text, out, args.opacity, args.rotation,
+                          args.dpi, args.font_size, args.poppler_path)
+        except RuntimeError as e:
+            error(str(e))
+            sys.exit(1)
 
     else:
         error(f"'{args.input}' is not a valid file or directory")
