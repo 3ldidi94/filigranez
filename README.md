@@ -1,4 +1,4 @@
-# filigranez
+![filigranez](logo-dark.png)
 
 PDF watermarking tool. The watermark is baked directly into the page pixels — it cannot be removed by editing PDF objects or deleting layers.
 

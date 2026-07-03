@@ -42,3 +42,6 @@ desktop.ini
 result
 result-*
 .direnv/
+
+# Logo source assets (SVG/PNG working files) — not tracked
+assets/
