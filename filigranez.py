@@ -21,12 +21,14 @@ import os
 import random
 import sys
 import tempfile
+import zlib
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
 try:
-    from PIL import Image, ImageColor, ImageDraw, ImageFont
+    from PIL import (Image, ImageChops, ImageColor, ImageDraw, ImageFilter,
+                     ImageFont)
     import pdf2image
     import img2pdf
 except ImportError as e:
@@ -37,14 +39,57 @@ except ImportError as e:
 try:
     import colorama
     colorama.init(autoreset=True)
+    HAS_COLORAMA = True
 except ImportError:
-    pass  # colorama is optional — ANSI codes work natively on Linux/Mac
+    HAS_COLORAMA = False  # optional — ANSI works natively on Linux/Mac
 
 try:
     from tqdm import tqdm
     HAS_TQDM = True
 except ImportError:
     HAS_TQDM = False  # progress bars are optional; falls back to per-page lines
+
+
+def _isatty(stream) -> bool:
+    try:
+        return bool(stream.isatty())
+    except Exception:
+        return False  # a stream that cannot answer is treated as a file
+
+
+def _encodable(text: str) -> bool:
+    """Whether the console can actually render `text`. A Windows console left
+    on a legacy code page, or any terminal under LC_ALL=C, raises on box
+    drawing and block characters instead of printing them."""
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        text.encode(enc)
+        return True
+    except (UnicodeEncodeError, LookupError):
+        return False
+
+
+def _color_enabled() -> bool:
+    if os.environ.get("NO_COLOR"):          # no-color.org convention
+        return False
+    if not _isatty(sys.stdout):             # keep escape codes out of pipes
+        return False
+    if os.name == "nt" and not HAS_COLORAMA:
+        # Without colorama, ANSI only works on a VT-capable Windows console.
+        return bool(os.environ.get("WT_SESSION") or os.environ.get("ANSICON")
+                    or os.environ.get("TERM"))
+    return True
+
+
+UNICODE_OK = _encodable("│›✗")
+BARS_OK = HAS_TQDM and _isatty(sys.stderr)
+LAYER_SHARE = 0.85   # of a page's progress, spent building the watermark layer
+
+# Plain substitutes so the layout survives a console that cannot encode these.
+SEP_CHAR  = "│" if UNICODE_OK else "|"
+DEG_CHAR  = "°" if _encodable("°") else " deg"
+STEP_CHAR = "›" if UNICODE_OK else ">"
+FAIL_CHAR = "✗" if UNICODE_OK else "x"
 
 
 class C:
@@ -58,18 +103,50 @@ class C:
     WHITE  = "\033[97m"
     RED    = "\033[31m"
 
+
+if not _color_enabled():
+    for _name in [n for n in vars(C) if not n.startswith("_")]:
+        setattr(C, _name, "")
+
 def _out(text: str = "") -> None:
-    # Route through tqdm.write when bars are active so they aren't clobbered.
-    if HAS_TQDM:
+    # Route through tqdm.write while a bar is live so it isn't clobbered.
+    if BARS_OK:
         tqdm.write(text)
     else:
         print(text)
 
 def info(msg: str)  -> None: _out(f"{C.GREEN}{C.BOLD}[+]{C.RESET} {msg}")
 def warn(msg: str)  -> None: _out(f"{C.YELLOW}{C.BOLD}[!]{C.RESET} {C.YELLOW}{msg}{C.RESET}")
-def error(msg: str) -> None: _out(f"{C.RED}{C.BOLD}[✗]{C.RESET} {C.RED}{msg}{C.RESET}")
-def step(msg: str)  -> None: _out(f"    {C.CYAN}›{C.RESET} {msg}")
+def error(msg: str) -> None: _out(f"{C.RED}{C.BOLD}[{FAIL_CHAR}]{C.RESET} {C.RED}{msg}{C.RESET}")
+def step(msg: str)  -> None: _out(f"    {C.CYAN}{STEP_CHAR}{C.RESET} {msg}")
 def sep()           -> None: _out(f"{C.DIM}{'=' * 50}{C.RESET}")
+
+
+def make_bar(iterable=None, desc: str = "", unit: str = "it",
+             total: Optional[int] = None, nested: bool = False,
+             leave: bool = False, counter: bool = True):
+    """A progress bar, or None (or the bare iterable) when bars would be
+    wrong: no tqdm, or output redirected to a file or pipe.
+
+    ascii= falls back to '#' when the console cannot encode block characters,
+    and dynamic_ncols lets the bar follow a terminal that gets resized.
+    position is only set for a bar nested under another one: on close tqdm
+    emits the carriage return ending its blanking spaces only for position 0,
+    so claiming a position with nothing above strands the cursor past them.
+    counter=False drops the n/total field, for a bar advanced by fractions of
+    a unit where a rounded count would read as done before it is."""
+    if not BARS_OK:
+        return iterable
+    count = " {n_fmt}/{total_fmt}" if counter else ""
+    opts = {"desc": desc, "unit": unit, "leave": leave, "dynamic_ncols": True,
+            "ascii": not _encodable("█"),
+            "bar_format": "  {desc} {percentage:3.0f}%|{bar}|" + count +
+                          " [{elapsed}<{remaining}]"}
+    if total is not None:
+        opts["total"] = total
+    if nested:
+        opts["position"] = 1
+    return tqdm(iterable, **opts) if iterable is not None else tqdm(**opts)
 
 
 FONT_PATHS = [
@@ -90,22 +167,65 @@ FONT_PATHS = [
 # staggered brick tiling, ~25° slope, translucent grey with a few tiles in a
 # muted red, wide vertical spacing, small horizontal gap.
 GOUV_ROTATION     = 25.0
-GOUV_OPACITY      = 0.5
-GOUV_COLOR        = "#505050"
-GOUV_ACCENT       = (185, 55, 65)   # composites to the pale red seen in the reference
-GOUV_ACCENT_RATIO = 0.12            # fraction of tiles drawn in the accent color
-GOUV_LINE_FACTOR  = 6.4             # vertical period as a multiple of font size
-# Each repetition is tilted a little off the base angle, which is what gives the
-# reference its undulating look. Measured there: mean 0°, sd 2.3°, peak ~4°.
-GOUV_ANGLE_JITTER = 4.0
-GOUV_JITTER_STEP  = 0.5             # angles are quantised so rotated tiles are reused
-GOUV_FONT_DIV     = 38              # auto font size: page width / 38
+GOUV_OPACITY      = 0.65
+GOUV_COLOR        = "#8D8D8D"       # the light grey of the four-ink palette
+# Each ink is fitted so that a row drawn with it composites onto white at the
+# value measured on the reference's rows: dark 110, light grey 169, navy
+# (123,122,141), red (205,138,140). Fitted through a JPEG round-trip, because
+# chroma subsampling washes colour out — a red picked on the raw layer comes
+# out about half as saturated once encoded.
+GOUV_ACCENT_RED   = (231, 77, 81)
+GOUV_ACCENT_NAVY  = (71, 71, 119)
+GOUV_INK_DARK     = (56, 56, 56)
+# Four inks, one per row, dealt so that every four consecutive rows carry each
+# of them exactly once in a random order. The reference's greys are bimodal —
+# its rows land near 100 or near 170, never in between — so the light and dark
+# greys are two inks rather than one ink at two opacities. None is the
+# requested --color, which is the light grey by default.
+GOUV_ROW_COLORS   = (None, GOUV_INK_DARK, GOUV_ACCENT_NAVY, GOUV_ACCENT_RED)
+# Geometry read off a blank-page sample at 148 dpi (page 1224px wide): rows
+# 263px apart, repetitions 478px long on a 504px pitch — so the gap between
+# repetitions is one font size, and the font itself is page width / 45.
+GOUV_LINE_FACTOR  = 9.74            # vertical period as a multiple of font size
+# Each row rides a sine rather than running straight. Fitting the reference's
+# baselines (glyph bias removed) gives one cycle per repetition, explaining
+# 94-97% of their shape, with the amplitude redrawn for every row.
+GOUV_WAVE_AMP_MIN = 0.08            # per-row amplitude, as a fraction of font size
+GOUV_WAVE_AMP_MAX = 0.38
+GOUV_WAVE_STEPS   = 96              # mesh columns across a row
+# Rows still vary in weight, but only slightly: the light/dark split is carried
+# by the inks above, and a wide opacity spread would blur one into the other.
+GOUV_ROW_ALPHA_MIN = 0.90
+GOUV_ROW_ALPHA_MAX = 1.10
+# The reference's glyphs are visibly grainy while its halo is smooth, which is
+# what applying the speckle to the ink *before* the blur produces.
+GOUV_GRAIN        = 0.16            # relative spread of the per-pixel ink alpha
+# The reference does not print crisp text: each repetition sits in a soft halo
+# that roughly doubles its visual weight. Not a JPEG artifact — re-encoding
+# clean text down to the reference's 148 dpi / 3.5% ratio gets nowhere near it.
+# Radius as a fraction of the font size, fitted so the halo covers the same
+# area relative to the ink as the reference does (6.1x).
+GOUV_GLOW_RADIUS  = 0.48
+GOUV_FONT_DIV     = 45              # auto font size: page width / 45
 CLASSIC_FONT_DIV  = 18
 
 
+# The reference sets its watermark in an Arial-metric face, not in DejaVu:
+# at the size that matches its 478px repetition, Liberation Sans lands within
+# 3px while DejaVu needs a size small enough to shrink the glyphs. Preferred
+# for --gouv only; the classic style keeps its original font order untouched.
+GOUV_FONT_PATHS = [
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/TTF/LiberationSans-Regular.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+]
+
+
 @lru_cache(maxsize=8)
-def load_font(size: int) -> ImageFont.FreeTypeFont:
-    for path in FONT_PATHS:
+def load_font(size: int, style: str = "classic") -> ImageFont.FreeTypeFont:
+    paths = GOUV_FONT_PATHS + FONT_PATHS if style == "gouv" else FONT_PATHS
+    for path in paths:
         if os.path.exists(path):
             return ImageFont.truetype(path, size)
     warn("No TrueType font found, falling back to default")
@@ -117,14 +237,70 @@ def load_font(size: int) -> ImageFont.FreeTypeFont:
         return ImageFont.load_default()
 
 
-def _text_tile(text: str, font: ImageFont.FreeTypeFont, fill: tuple) -> Image.Image:
-    """One repetition of the text on its own transparent tile, positioned so
-    that compositing it at (x, y) matches draw.text((x, y), ...)."""
-    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    bbox = probe.textbbox((0, 0), text, font=font)
-    tile = Image.new("RGBA", (bbox[2] + 1, bbox[3] + 1), (0, 0, 0, 0))
-    ImageDraw.Draw(tile).text((0, 0), text, font=font, fill=fill)
-    return tile
+A4_POINTS = (595.276, 841.89)
+
+
+def _fit_a4(page: Image.Image, dpi: int) -> Image.Image:
+    """Centre the page on an A4 sheet of the same orientation, scaled to fit,
+    with white margins. Nothing is cropped and the aspect ratio is kept, so a
+    Letter page comes out as A4 with a band top and bottom rather than
+    stretched. Applied before the watermark, so the margins get covered too."""
+    w_pt, h_pt = A4_POINTS
+    if page.width > page.height:
+        w_pt, h_pt = h_pt, w_pt
+    sheet_w = max(1, round(w_pt / 72 * dpi))
+    sheet_h = max(1, round(h_pt / 72 * dpi))
+    # A page already A4 is left alone: rounding the sheet to whole pixels can
+    # differ from the render by a pixel, and resampling over that would soften
+    # the page for nothing.
+    if (abs(page.width - sheet_w) <= 2 and abs(page.height - sheet_h) <= 2):
+        return page
+    scale = min(sheet_w / page.width, sheet_h / page.height)
+    new_w = max(1, round(page.width * scale))
+    new_h = max(1, round(page.height * scale))
+    sheet = Image.new("RGBA", (sheet_w, sheet_h), (255, 255, 255, 255))
+    sheet.paste(page.resize((new_w, new_h), Image.LANCZOS),
+                ((sheet_w - new_w) // 2, (sheet_h - new_h) // 2))
+    return sheet
+
+
+def _grain(strip: Image.Image, amount: float) -> Image.Image:
+    """Speckle the ink by jittering its alpha per pixel. Multiplying rather
+    than adding keeps the transparent background untouched, so only drawn
+    pixels break up. The mean is pulled down by `amount`, which the calibrated
+    row opacities already account for."""
+    noise = Image.effect_noise(strip.size, 48)      # gaussian, mean 128, sd 48
+    scale = amount * 255 / 48
+    base = 255 * (1 - amount)
+    mult = noise.point(
+        lambda v: max(0, min(255, int(base + (v - 128) * scale))))
+    strip.putalpha(ImageChops.multiply(strip.getchannel("A"), mult))
+    return strip
+
+
+def _wave_strip(strip: Image.Image, amp: float, period: float, phase: float,
+                x0: int) -> Image.Image:
+    """Displace the strip's columns along a sine of the given amplitude and
+    period. `x0` is the strip's own offset on the canvas, so the wave stays a
+    function of canvas position and neighbouring rows never share a phase.
+
+    A mesh warp keeps this to one C-level call. The wave is shallow enough
+    (its steepest slope is a few degrees) that shifting columns reads as a
+    curve without having to rotate each glyph onto the tangent."""
+    w, h = strip.size
+    k = 2 * math.pi / period
+    mesh = []
+    for i in range(GOUV_WAVE_STEPS):
+        xa, xb = w * i // GOUV_WAVE_STEPS, w * (i + 1) // GOUV_WAVE_STEPS
+        if xb <= xa:
+            continue
+        da = amp * math.sin(k * (xa + x0) + phase)
+        db = amp * math.sin(k * (xb + x0) + phase)
+        mesh.append(((xa, 0, xb, h),
+                     (xa, -da, xa, h - da, xb, h - db, xb, -db)))
+    if not mesh:
+        return strip
+    return strip.transform((w, h), Image.MESH, mesh, resample=Image.BILINEAR)
 
 
 def _composite_at(canvas: Image.Image, tile: Image.Image, x: int, y: int) -> None:
@@ -145,8 +321,12 @@ def _composite_at(canvas: Image.Image, tile: Image.Image, x: int, y: int) -> Non
 def make_watermark_layer(
     width: int, height: int, text: str, opacity: float, rotation: float,
     font_size: int, color: tuple, style: str = "classic",
+    on_row=None,
 ) -> Image.Image:
-    font = load_font(font_size)
+    """`on_row(done, total)`, if given, is called after each row of the tiling.
+    Building this layer is the bulk of the work on a page, so it is what a
+    progress bar has to follow to move at all on a one-page document."""
+    font = load_font(font_size, style)
     alpha = int(255 * opacity)
     fill = (*color, alpha)
 
@@ -164,45 +344,72 @@ def make_watermark_layer(
         spacing_x = tw + font_size
         spacing_y = max(th + 50, int(font_size * GOUV_LINE_FACTOR))
         stagger = spacing_x // 2
-        accent_fill = (*GOUV_ACCENT, alpha)
-        # Seeded so the accent tiles and the per-tile tilt are stable between runs.
-        rng = random.Random(0x600F)
+        # Seeded from the text so the colour order, row weights and waves
+        # differ between one watermark and the next, yet a given text always
+        # renders identically. crc32 rather than hash(), which is salted
+        # per process and would change the output from one run to the next.
+        rng = random.Random(zlib.crc32(text.encode("utf-8")))
     else:
         spacing_x = tw + max(40, tw // 2)
         spacing_y = th + max(50, th * 3)
         stagger = 0
-        accent_fill = None
         rng = None
 
+    rows = range(-spacing_y, diag + spacing_y, spacing_y)
+    n_rows = len(rows)
+
     if rng is None:
-        for base_y in range(-spacing_y, diag + spacing_y, spacing_y):
+        for done, base_y in enumerate(rows, 1):
             for base_x in range(-spacing_x, diag + spacing_x, spacing_x):
                 draw.text((base_x, base_y), text, font=font, fill=fill)
+            if on_row:
+                on_row(done, n_rows)
     else:
-        # Every repetition is drawn on its own tile and tilted a few degrees off
-        # the base angle, so the rows undulate instead of forming rigid lines.
-        base_tiles = {False: _text_tile(text, font, fill),
-                      True:  _text_tile(text, font, accent_fill)}
-        base_w, base_h = base_tiles[False].size
-        rotated_cache = {}
-        for row, base_y in enumerate(range(-spacing_y, diag + spacing_y, spacing_y)):
-            offset = stagger if row % 2 else 0
-            for base_x in range(-spacing_x - offset, diag + spacing_x, spacing_x):
-                accent = rng.random() < GOUV_ACCENT_RATIO
-                angle = rng.uniform(-GOUV_ANGLE_JITTER, GOUV_ANGLE_JITTER)
-                angle = round(angle / GOUV_JITTER_STEP) * GOUV_JITTER_STEP
-                key = (accent, angle)
-                tile = rotated_cache.get(key)
-                if tile is None:
-                    tile = base_tiles[accent]
-                    if angle:
-                        tile = tile.rotate(angle, expand=True, resample=Image.BICUBIC)
-                    rotated_cache[key] = tile
-                # rotate(expand=True) grows the tile around its centre; shift
-                # back by half the growth so the text stays where it was.
-                _composite_at(canvas, tile,
-                              base_x - (tile.width - base_w) // 2,
-                              base_y - (tile.height - base_h) // 2)
+        # A row is drawn whole, then bent along one continuous sine running the
+        # length of the canvas. Because the wave never restarts between
+        # repetitions, a cut, splice or patch anywhere in the page breaks the
+        # curve and shows up as a step in an otherwise smooth line.
+        glow = font_size * GOUV_GLOW_RADIUS
+        gpad = int(glow * 3) + 1 if glow else 0
+        text_w, text_h = bbox[2] + 1, bbox[3] + 1
+        # One random permutation of the four inks, then cycled. Reshuffling at
+        # each cycle would let a colour repeat across the seam and leave
+        # another out of a four-row window; keeping every such window complete
+        # forces the order to repeat with a period of four, so the order is
+        # what gets drawn, once.
+        order = list(GOUV_ROW_COLORS)
+        rng.shuffle(order)
+        for row, base_y in enumerate(rows):
+            x_start = -spacing_x - (stagger if row % 2 else 0)
+            x_stop = diag + spacing_x
+            amp = rng.uniform(GOUV_WAVE_AMP_MIN, GOUV_WAVE_AMP_MAX) * font_size
+            phase = rng.uniform(0, 2 * math.pi)
+            apad = int(math.ceil(amp)) + 1
+            # every row prints at its own weight, never so faint as to vanish
+            row_alpha = min(255, int(alpha * rng.uniform(GOUV_ROW_ALPHA_MIN,
+                                                         GOUV_ROW_ALPHA_MAX)))
+            # Colour is a property of the whole row: in the reference every
+            # repetition on a line shares it exactly, and lines are never mixed.
+            row_fill = (*(order[row % len(order)] or color), row_alpha)
+
+            strip = Image.new("RGBA",
+                              (x_stop - x_start + 2 * gpad + text_w,
+                               text_h + 2 * gpad + 2 * apad), (0, 0, 0, 0))
+            sdraw = ImageDraw.Draw(strip)
+            for base_x in range(x_start, x_stop, spacing_x):
+                sdraw.text((base_x - x_start + gpad, gpad + apad),
+                           text, font=font, fill=row_fill)
+            if GOUV_GRAIN:
+                strip = _grain(strip, GOUV_GRAIN)
+            if glow:
+                strip = Image.alpha_composite(
+                    strip.filter(ImageFilter.GaussianBlur(glow)), strip)
+            # one cycle per repetition, as measured, not per repetition pitch
+            strip = _wave_strip(strip, amp, text_w, phase, x_start - gpad)
+            if on_row:
+                on_row(row + 1, n_rows)
+            _composite_at(canvas, strip,
+                          x_start - gpad, base_y - gpad - apad)
 
     rotated = canvas.rotate(rotation, expand=False, resample=Image.BICUBIC)
     cx, cy = (diag - width) // 2, (diag - height) // 2
@@ -231,6 +438,8 @@ def watermark_pdf(
     quality: int,
     poppler_path: Optional[str] = None,
     style: str = "classic",
+    page_size: str = "keep",
+    nested: bool = False,
 ) -> None:
     info(f"Loading  : {C.WHITE}{C.BOLD}{input_path}{C.RESET}")
 
@@ -253,33 +462,44 @@ def watermark_pdf(
                 pdf2image.exceptions.PDFSyntaxError) as e:
             raise RuntimeError(f"cannot read PDF ({e})")
         info(f"Pages    : {C.WHITE}{C.BOLD}{len(page_paths)}{C.RESET}")
-        info(f"Opacity  : {C.WHITE}{C.BOLD}{int(opacity * 100)}%{C.RESET}  │  "
-             f"Rotation: {C.WHITE}{C.BOLD}{rotation}°{C.RESET}  │  "
-             f"DPI: {C.WHITE}{C.BOLD}{dpi}{C.RESET}")
+        info(f"Opacity  : {C.WHITE}{C.BOLD}{int(opacity * 100)}%{C.RESET}"
+             f"  {SEP_CHAR}  Rotation: {C.WHITE}{C.BOLD}{rotation}{DEG_CHAR}{C.RESET}"
+             f"  {SEP_CHAR}  DPI: {C.WHITE}{C.BOLD}{dpi}{C.RESET}")
 
         font_div = GOUV_FONT_DIV if style == "gouv" else CLASSIC_FONT_DIV
         layer_cache = {}
         img_paths = []
-        page_iter = enumerate(page_paths, 1)
-        if HAS_TQDM:
-            page_iter = tqdm(page_iter, total=len(page_paths), desc="  Pages",
-                             unit="p", leave=False, position=1)
-        for i, page_path in page_iter:
+        # A page is worth 1 on the bar, most of it spent drawing the watermark
+        # layer, so that share is handed out row by row while it is built.
+        # Without that a one-page document sits at 0 until it is simply done.
+        n_pages = len(page_paths)
+        bar = make_bar(desc=f"Page 1/{n_pages}", unit="pg", total=n_pages,
+                       nested=nested, counter=False)
+        for i, page_path in enumerate(page_paths, 1):
+            if bar is not None:
+                bar.set_description_str(f"Page {i}/{n_pages}")
             with Image.open(page_path) as rendered:
                 page = rendered.convert("RGBA")
+            if page_size == "a4":
+                page = _fit_a4(page, dpi)
             auto_font = font_size or max(24, page.width // font_div)
-            if not HAS_TQDM:
-                step(f"Page {C.WHITE}{C.BOLD}{i}/{len(page_paths)}{C.RESET} "
+            if bar is None:   # no bar to watch, so log each page instead
+                step(f"Page {C.WHITE}{C.BOLD}{i}/{n_pages}{C.RESET} "
                      f"{C.DIM}({page.width}x{page.height}px){C.RESET}")
             # Pages of identical size reuse the same layer instead of
             # re-drawing and re-rotating it for every page.
             key = (page.width, page.height, auto_font)
             layer = layer_cache.get(key)
             if layer is None:
+                def tick(done: int, total: int) -> None:
+                    if bar is not None and total:
+                        bar.update(LAYER_SHARE / total)
                 layer = make_watermark_layer(
                     page.width, page.height, text, opacity, rotation,
-                    auto_font, color, style)
+                    auto_font, color, style, on_row=tick)
                 layer_cache[key] = layer
+            elif bar is not None:
+                bar.update(LAYER_SHARE)   # reused layer: that work is free
             result = Image.alpha_composite(page, layer).convert("RGB")
 
             out_jpg = os.path.join(tmpdir, f"page_{i:04d}.jpg")
@@ -288,6 +508,14 @@ def watermark_pdf(
             result.save(out_jpg, "JPEG", quality=quality, dpi=(dpi, dpi))
             img_paths.append(out_jpg)
             os.remove(page_path)  # free the uncompressed render early
+            if bar is not None:
+                bar.update(1.0 - LAYER_SHARE)
+
+        if bar is not None:
+            # rounding on the fractional updates can leave it a hair short
+            bar.n = bar.total
+            bar.refresh()
+            bar.close()
 
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         with open(output_path, "wb") as f:
@@ -345,6 +573,10 @@ Examples:
     parser.add_argument("--color",        "-c", type=str,   default=None,
                         metavar="COLOR",  help="Text color: #RRGGBB or name "
                                               "(default: #DC1414, gouv: #505050)")
+    parser.add_argument("--page-size",    "-P", choices=("keep", "a4"), default="keep",
+                        help="Output page size: 'keep' preserves the input page size, "
+                             "'a4' normalises every page to A4 (scaled to fit, "
+                             "centred, never stretched or cropped) (default: keep)")
     parser.add_argument("--quality",      "-q", type=int,   default=95,
                         metavar="INT",    help="JPEG quality 1–95 (default: 95)")
     parser.add_argument("--suffix-name",  "-s", type=str,   default="watermark",
@@ -398,7 +630,8 @@ Examples:
         info(f"Output dir : {C.BLUE}{C.BOLD}{output_dir}{C.RESET}")
         info(f"Files found: {C.WHITE}{C.BOLD}{len(pdfs)}{C.RESET}")
         failures = 0
-        pdf_iter = tqdm(pdfs, desc="Files", unit="f", position=0) if HAS_TQDM else pdfs
+        pdf_iter = make_bar(pdfs, desc="Files", unit="f", total=len(pdfs),
+                            leave=True)
         for pdf in pdf_iter:
             _out()
             sep()
@@ -408,7 +641,8 @@ Examples:
             try:
                 watermark_pdf(pdf, args.text, str(out), args.opacity, args.rotation,
                               args.dpi, args.font_size, color, args.quality,
-                              args.poppler_path, style)
+                              args.poppler_path, style, args.page_size,
+                              nested=True)
             except RuntimeError as e:
                 error(f"Skipping {pdf}: {e}")
                 failures += 1
@@ -425,7 +659,7 @@ Examples:
         try:
             watermark_pdf(input_path, args.text, out, args.opacity, args.rotation,
                           args.dpi, args.font_size, color, args.quality,
-                          args.poppler_path, style)
+                          args.poppler_path, style, args.page_size)
         except RuntimeError as e:
             error(str(e))
             sys.exit(1)

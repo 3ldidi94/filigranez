@@ -76,6 +76,7 @@ filigranez.py <input> <text> [output] [options]
 |------|-------|---------|-------------|
 | `--opacity` | `-o` | `0.5` | Opacity from 0.0 (invisible) to 1.0 (solid) |
 | `--rotation` | `-r` | `45` | Rotation angle in degrees |
+| `--page-size` | `-P` | `keep` | `keep` preserves the input page size; `a4` normalises every page to A4 |
 | `--dpi` | `-d` | `200` | Rendering resolution (higher = better quality, larger file) |
 | `--font-size` | `-f` | auto | Font size in pixels (default: page width / 18) |
 | `--color` | `-c` | `#DC1414` | Watermark text color — `#RRGGBB` or a color name (e.g. `red`, `navy`) |
@@ -83,7 +84,11 @@ filigranez.py <input> <text> [output] [options]
 | `--suffix-name` | `-s` | `watermark` | Suffix appended to output filename(s) |
 | `--poppler-path` | `-p` | — | Path to poppler `bin/` directory (Windows) |
 
-Output page dimensions are preserved (the rendering DPI is embedded so the resulting PDF matches the original page size).
+### Page size
+
+By default the input page size is preserved (the rendering DPI is embedded so the resulting PDF matches the original page size).
+
+Pass `--page-size a4` to normalise every page to A4 instead. Pages are scaled to fit and centred, keeping their aspect ratio — nothing is stretched or cropped, so a Letter page comes out as A4 with a white band at the top and bottom. A page that is already A4 is passed through untouched rather than resampled, and landscape pages become landscape A4 rather than being rotated. Normalisation happens before the watermark is drawn, so the watermark covers the added margins too.
 
 ## Examples
 
@@ -103,6 +108,9 @@ python filigranez.py document.pdf "SECRET" --color navy
 
 # Smaller output file (more JPEG compression)
 python filigranez.py document.pdf "INTERNE" --quality 70
+
+# Normalise every page to A4 instead of keeping the original size
+python filigranez.py document.pdf "INTERNE" --page-size a4
 
 # Explicit output filename
 python filigranez.py document.pdf "SECRET" output.pdf
