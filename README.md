@@ -32,6 +32,8 @@ python filigranez.py document.pdf "BROUILLON" --color "#1E6FFF" --rotation 30 --
 
 The resulting PDF contains only raster images — no text objects, no layers, no removable elements.
 
+Pages are rendered and composited one at a time, so memory use stays flat regardless of how many pages the document has. When consecutive pages share the same dimensions — the usual case — the watermark layer is computed once and reused.
+
 ## Dependencies
 
 ### Python packages
@@ -92,6 +94,9 @@ python filigranez.py document.pdf "CONFIDENTIEL"
 # Custom opacity and rotation
 python filigranez.py document.pdf "DRAFT" --opacity 0.3 --rotation 30
 
+# Discreet watermark — light grey, low opacity, small text
+python filigranez.py document.pdf "INTERNE" --color "#505050" --opacity 0.35 --font-size 40
+
 # Custom watermark color (hex or name)
 python filigranez.py document.pdf "BROUILLON" --color "#1E6FFF"
 python filigranez.py document.pdf "SECRET" --color navy
@@ -115,6 +120,8 @@ python filigranez.py document.pdf "CONFIDENTIEL" --dpi 300
 python filigranez.py document.pdf "DRAFT" --poppler-path "C:/poppler/bin"
 ```
 
+Run `python filigranez.py --help` for the full list of flags.
+
 ## Directory mode
 
 When the input is a directory, the tool:
@@ -136,6 +143,13 @@ docs_watermark/
     └── contract_watermark.pdf
 ```
 
+## Safety checks
+
+- Refuses to write the output over the input file
+- Validates `--opacity`, `--dpi`, `--font-size`, `--quality` and `--color` before doing any work
+- Rejects empty watermark text
+- Duplicate files (symlinks, case-variant names) are processed once in directory mode
+
 ## License
 
 GPL v3 — see [LICENSE](LICENSE)
@@ -144,9 +158,13 @@ Any modification or project integrating filigranez must remain open source under
 
 ## Nix / NixOS
 
-A `filigranez.nix` flake is included for reproducible builds with all dependencies pinned.
+A `flake.nix` is included for reproducible builds with all dependencies pinned, poppler included.
 
 ```bash
+# Enter a shell with filigranez and all dependencies available
 nix develop
 filigranez document.pdf "CONFIDENTIEL"
+
+# Or run it directly without installing anything
+nix run . -- document.pdf "CONFIDENTIEL"
 ```

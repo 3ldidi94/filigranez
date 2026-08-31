@@ -19,7 +19,10 @@
           tqdm      # optional — progress bars
         ]);
 
+        # poppler is prepended to PATH so the built package works on its own
+        # (nix run / nix profile install), not only inside the devShell.
         filigranez = pkgs.writeShellScriptBin "filigranez" ''
+          export PATH="${pkgs.poppler_utils}/bin:$PATH"
           exec ${python}/bin/python3 ${./filigranez.py} "$@"
         '';
 

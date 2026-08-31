@@ -18,8 +18,10 @@
 import argparse
 import math
 import os
+import random
 import sys
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -84,6 +86,20 @@ FONT_PATHS = [
 ]
 
 
+# Presets for --gouv mode, matched against filigrane.beta.gouv.fr output:
+# staggered brick tiling, ~25° slope, translucent grey with a few tiles in a
+# muted red, wide vertical spacing, small horizontal gap.
+GOUV_ROTATION     = 25.0
+GOUV_OPACITY      = 0.5
+GOUV_COLOR        = "#505050"
+GOUV_ACCENT       = (185, 55, 65)   # composites to the pale red seen in the reference
+GOUV_ACCENT_RATIO = 0.12            # fraction of tiles drawn in the accent color
+GOUV_LINE_FACTOR  = 6.4             # vertical period as a multiple of font size
+GOUV_FONT_DIV     = 38              # auto font size: page width / 38
+CLASSIC_FONT_DIV  = 18
+
+
+@lru_cache(maxsize=8)
 def load_font(size: int) -> ImageFont.FreeTypeFont:
     for path in FONT_PATHS:
         if os.path.exists(path):
@@ -99,7 +115,7 @@ def load_font(size: int) -> ImageFont.FreeTypeFont:
 
 def make_watermark_layer(
     width: int, height: int, text: str, opacity: float, rotation: float,
-    font_size: int, color: tuple,
+    font_size: int, color: tuple, style: str = "classic",
 ) -> Image.Image:
     font = load_font(font_size)
     alpha = int(255 * opacity)
@@ -114,12 +130,28 @@ def make_watermark_layer(
 
     bbox = draw.textbbox((0, 0), text, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    spacing_x = tw + max(40, tw // 2)
-    spacing_y = th + max(50, th * 3)
 
-    for base_y in range(-spacing_y, diag + spacing_y, spacing_y):
-        for base_x in range(-spacing_x, diag + spacing_x, spacing_x):
-            draw.text((base_x, base_y), text, font=font, fill=fill)
+    if style == "gouv":
+        spacing_x = tw + font_size
+        spacing_y = max(th + 50, int(font_size * GOUV_LINE_FACTOR))
+        stagger = spacing_x // 2
+        accent_fill = (*GOUV_ACCENT, alpha)
+        # Seeded so the accent-tile pattern is stable between runs.
+        rng = random.Random(0x600F)
+    else:
+        spacing_x = tw + max(40, tw // 2)
+        spacing_y = th + max(50, th * 3)
+        stagger = 0
+        accent_fill = None
+        rng = None
+
+    for row, base_y in enumerate(range(-spacing_y, diag + spacing_y, spacing_y)):
+        offset = stagger if row % 2 else 0
+        for base_x in range(-spacing_x - offset, diag + spacing_x, spacing_x):
+            tile_fill = fill
+            if rng is not None and rng.random() < GOUV_ACCENT_RATIO:
+                tile_fill = accent_fill
+            draw.text((base_x, base_y), text, font=font, fill=tile_fill)
 
     rotated = canvas.rotate(rotation, expand=False, resample=Image.BICUBIC)
     cx, cy = (diag - width) // 2, (diag - height) // 2
@@ -128,11 +160,11 @@ def make_watermark_layer(
 
 def watermark_page(
     page_image: Image.Image, text: str, opacity: float, rotation: float,
-    font_size: int, color: tuple,
+    font_size: int, color: tuple, style: str = "classic",
 ) -> Image.Image:
     page = page_image.convert("RGBA")
     layer = make_watermark_layer(
-        page.width, page.height, text, opacity, rotation, font_size, color)
+        page.width, page.height, text, opacity, rotation, font_size, color, style)
     return Image.alpha_composite(page, layer).convert("RGB")
 
 
@@ -147,49 +179,64 @@ def watermark_pdf(
     color: tuple,
     quality: int,
     poppler_path: Optional[str] = None,
+    style: str = "classic",
 ) -> None:
     info(f"Loading  : {C.WHITE}{C.BOLD}{input_path}{C.RESET}")
 
-    kwargs = {"dpi": dpi}
-    if poppler_path:
-        kwargs["poppler_path"] = poppler_path
-
-    try:
-        pages = pdf2image.convert_from_path(str(input_path), **kwargs)
-    except pdf2image.exceptions.PDFInfoNotInstalledError:
-        raise RuntimeError(
-            "poppler not found. Install it (e.g. 'apt install poppler-utils') "
-            "or pass --poppler-path to its bin directory."
-        )
-    except (pdf2image.exceptions.PDFPageCountError,
-            pdf2image.exceptions.PDFSyntaxError) as e:
-        raise RuntimeError(f"cannot read PDF ({e})")
-    info(f"Pages    : {C.WHITE}{C.BOLD}{len(pages)}{C.RESET}")
-    info(f"Opacity  : {C.WHITE}{C.BOLD}{int(opacity * 100)}%{C.RESET}  │  "
-         f"Rotation: {C.WHITE}{C.BOLD}{rotation}°{C.RESET}  │  "
-         f"DPI: {C.WHITE}{C.BOLD}{dpi}{C.RESET}")
-
-    watermarked = []
-    page_iter = enumerate(pages, 1)
-    if HAS_TQDM:
-        page_iter = tqdm(page_iter, total=len(pages), desc="  Pages",
-                         unit="p", leave=False, position=1)
-    for i, page in page_iter:
-        auto_font = font_size or max(24, page.width // 18)
-        if not HAS_TQDM:
-            step(f"Page {C.WHITE}{C.BOLD}{i}/{len(pages)}{C.RESET} "
-                 f"{C.DIM}({page.width}x{page.height}px){C.RESET}")
-        watermarked.append(
-            watermark_page(page, text, opacity, rotation, auto_font, color))
-
     with tempfile.TemporaryDirectory() as tmpdir:
+        # Render pages to files and open them one at a time: memory stays at
+        # ~one page instead of the whole document.
+        kwargs = {"dpi": dpi, "output_folder": tmpdir,
+                  "paths_only": True, "fmt": "ppm"}
+        if poppler_path:
+            kwargs["poppler_path"] = poppler_path
+
+        try:
+            page_paths = pdf2image.convert_from_path(str(input_path), **kwargs)
+        except pdf2image.exceptions.PDFInfoNotInstalledError:
+            raise RuntimeError(
+                "poppler not found. Install it (e.g. 'apt install poppler-utils') "
+                "or pass --poppler-path to its bin directory."
+            )
+        except (pdf2image.exceptions.PDFPageCountError,
+                pdf2image.exceptions.PDFSyntaxError) as e:
+            raise RuntimeError(f"cannot read PDF ({e})")
+        info(f"Pages    : {C.WHITE}{C.BOLD}{len(page_paths)}{C.RESET}")
+        info(f"Opacity  : {C.WHITE}{C.BOLD}{int(opacity * 100)}%{C.RESET}  │  "
+             f"Rotation: {C.WHITE}{C.BOLD}{rotation}°{C.RESET}  │  "
+             f"DPI: {C.WHITE}{C.BOLD}{dpi}{C.RESET}")
+
+        font_div = GOUV_FONT_DIV if style == "gouv" else CLASSIC_FONT_DIV
+        layer_cache = {}
         img_paths = []
-        for i, page in enumerate(watermarked):
-            path = os.path.join(tmpdir, f"page_{i:04d}.jpg")
+        page_iter = enumerate(page_paths, 1)
+        if HAS_TQDM:
+            page_iter = tqdm(page_iter, total=len(page_paths), desc="  Pages",
+                             unit="p", leave=False, position=1)
+        for i, page_path in page_iter:
+            with Image.open(page_path) as rendered:
+                page = rendered.convert("RGBA")
+            auto_font = font_size or max(24, page.width // font_div)
+            if not HAS_TQDM:
+                step(f"Page {C.WHITE}{C.BOLD}{i}/{len(page_paths)}{C.RESET} "
+                     f"{C.DIM}({page.width}x{page.height}px){C.RESET}")
+            # Pages of identical size reuse the same layer instead of
+            # re-drawing and re-rotating it for every page.
+            key = (page.width, page.height, auto_font)
+            layer = layer_cache.get(key)
+            if layer is None:
+                layer = make_watermark_layer(
+                    page.width, page.height, text, opacity, rotation,
+                    auto_font, color, style)
+                layer_cache[key] = layer
+            result = Image.alpha_composite(page, layer).convert("RGB")
+
+            out_jpg = os.path.join(tmpdir, f"page_{i:04d}.jpg")
             # Embed the DPI so img2pdf sizes the PDF page correctly. Without it
             # img2pdf assumes 96 DPI and pages come out physically oversized.
-            page.save(path, "JPEG", quality=quality, dpi=(dpi, dpi))
-            img_paths.append(path)
+            result.save(out_jpg, "JPEG", quality=quality, dpi=(dpi, dpi))
+            img_paths.append(out_jpg)
+            os.remove(page_path)  # free the uncompressed render early
 
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         with open(output_path, "wb") as f:
@@ -225,22 +272,28 @@ Examples:
   filigranez.py doc.pdf "CONFIDENTIEL"
   filigranez.py doc.pdf "CONFIDENTIEL" out.pdf --opacity 0.3 --rotation 30
   filigranez.py ./docs/ "DRAFT" --dpi 300
+  filigranez.py doc.pdf "Document destiné à la location" --gouv
   filigranez.py doc.pdf "DRAFT" --poppler-path "C:/poppler/bin"
         """,
     )
     parser.add_argument("input",  help="Input PDF file or directory")
     parser.add_argument("text",   help="Watermark text")
     parser.add_argument("output", nargs="?", help="Output PDF (single file mode only)")
-    parser.add_argument("--opacity",      "-o", type=float, default=0.5,
+    parser.add_argument("--gouv",         "-g", action="store_true",
+                        help="filigrane.beta.gouv.fr style: dense staggered grey "
+                             "tiling at 25° with a few pale-red repetitions "
+                             "(--opacity/--rotation/--color/--font-size still override)")
+    parser.add_argument("--opacity",      "-o", type=float, default=None,
                         metavar="FLOAT",  help="Opacity 0.0–1.0 (default: 0.5)")
-    parser.add_argument("--rotation",     "-r", type=float, default=45,
-                        metavar="DEG",    help="Rotation in degrees (default: 45)")
+    parser.add_argument("--rotation",     "-r", type=float, default=None,
+                        metavar="DEG",    help="Rotation in degrees (default: 45, gouv: 25)")
     parser.add_argument("--dpi",          "-d", type=int,   default=200,
                         metavar="INT",    help="Rendering DPI (default: 200)")
     parser.add_argument("--font-size",    "-f", type=int,   default=None,
                         metavar="INT",    help="Font size in pixels (default: auto)")
-    parser.add_argument("--color",        "-c", type=str,   default="#DC1414",
-                        metavar="COLOR",  help="Text color: #RRGGBB or name (default: #DC1414)")
+    parser.add_argument("--color",        "-c", type=str,   default=None,
+                        metavar="COLOR",  help="Text color: #RRGGBB or name "
+                                              "(default: #DC1414, gouv: #505050)")
     parser.add_argument("--quality",      "-q", type=int,   default=95,
                         metavar="INT",    help="JPEG quality 1–95 (default: 95)")
     parser.add_argument("--suffix-name",  "-s", type=str,   default="watermark",
@@ -249,6 +302,15 @@ Examples:
                         metavar="PATH",   help="Path to poppler bin directory (Windows)")
 
     args = parser.parse_args()
+
+    # Per-style defaults; explicit flags always win, in either style.
+    style = "gouv" if args.gouv else "classic"
+    if args.opacity is None:
+        args.opacity = GOUV_OPACITY if args.gouv else 0.5
+    if args.rotation is None:
+        args.rotation = GOUV_ROTATION if args.gouv else 45.0
+    if args.color is None:
+        args.color = GOUV_COLOR if args.gouv else "#DC1414"
 
     if not 0.0 <= args.opacity <= 1.0:
         error("--opacity must be between 0.0 and 1.0")
@@ -295,7 +357,7 @@ Examples:
             try:
                 watermark_pdf(pdf, args.text, str(out), args.opacity, args.rotation,
                               args.dpi, args.font_size, color, args.quality,
-                              args.poppler_path)
+                              args.poppler_path, style)
             except RuntimeError as e:
                 error(f"Skipping {pdf}: {e}")
                 failures += 1
@@ -312,7 +374,7 @@ Examples:
         try:
             watermark_pdf(input_path, args.text, out, args.opacity, args.rotation,
                           args.dpi, args.font_size, color, args.quality,
-                          args.poppler_path)
+                          args.poppler_path, style)
         except RuntimeError as e:
             error(str(e))
             sys.exit(1)
