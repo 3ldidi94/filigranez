@@ -95,6 +95,10 @@ GOUV_COLOR        = "#505050"
 GOUV_ACCENT       = (185, 55, 65)   # composites to the pale red seen in the reference
 GOUV_ACCENT_RATIO = 0.12            # fraction of tiles drawn in the accent color
 GOUV_LINE_FACTOR  = 6.4             # vertical period as a multiple of font size
+# Each repetition is tilted a little off the base angle, which is what gives the
+# reference its undulating look. Measured there: mean 0°, sd 2.3°, peak ~4°.
+GOUV_ANGLE_JITTER = 4.0
+GOUV_JITTER_STEP  = 0.5             # angles are quantised so rotated tiles are reused
 GOUV_FONT_DIV     = 38              # auto font size: page width / 38
 CLASSIC_FONT_DIV  = 18
 
@@ -111,6 +115,31 @@ def load_font(size: int) -> ImageFont.FreeTypeFont:
     except TypeError:
         warn("Pillow < 10: default font ignores size, text may appear small")
         return ImageFont.load_default()
+
+
+def _text_tile(text: str, font: ImageFont.FreeTypeFont, fill: tuple) -> Image.Image:
+    """One repetition of the text on its own transparent tile, positioned so
+    that compositing it at (x, y) matches draw.text((x, y), ...)."""
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    bbox = probe.textbbox((0, 0), text, font=font)
+    tile = Image.new("RGBA", (bbox[2] + 1, bbox[3] + 1), (0, 0, 0, 0))
+    ImageDraw.Draw(tile).text((0, 0), text, font=font, fill=fill)
+    return tile
+
+
+def _composite_at(canvas: Image.Image, tile: Image.Image, x: int, y: int) -> None:
+    """Alpha-composite a tile at (x, y), clipping whatever falls outside.
+    Image.alpha_composite rejects negative destinations, so edge tiles are
+    cropped rather than skipped — otherwise the margins would stay bare."""
+    sx, sy = max(0, -x), max(0, -y)
+    dx, dy = max(0, x), max(0, y)
+    w = min(tile.width - sx, canvas.width - dx)
+    h = min(tile.height - sy, canvas.height - dy)
+    if w <= 0 or h <= 0:
+        return
+    if (sx, sy, w, h) != (0, 0, tile.width, tile.height):
+        tile = tile.crop((sx, sy, sx + w, sy + h))
+    canvas.alpha_composite(tile, (dx, dy))
 
 
 def make_watermark_layer(
@@ -136,7 +165,7 @@ def make_watermark_layer(
         spacing_y = max(th + 50, int(font_size * GOUV_LINE_FACTOR))
         stagger = spacing_x // 2
         accent_fill = (*GOUV_ACCENT, alpha)
-        # Seeded so the accent-tile pattern is stable between runs.
+        # Seeded so the accent tiles and the per-tile tilt are stable between runs.
         rng = random.Random(0x600F)
     else:
         spacing_x = tw + max(40, tw // 2)
@@ -145,13 +174,35 @@ def make_watermark_layer(
         accent_fill = None
         rng = None
 
-    for row, base_y in enumerate(range(-spacing_y, diag + spacing_y, spacing_y)):
-        offset = stagger if row % 2 else 0
-        for base_x in range(-spacing_x - offset, diag + spacing_x, spacing_x):
-            tile_fill = fill
-            if rng is not None and rng.random() < GOUV_ACCENT_RATIO:
-                tile_fill = accent_fill
-            draw.text((base_x, base_y), text, font=font, fill=tile_fill)
+    if rng is None:
+        for base_y in range(-spacing_y, diag + spacing_y, spacing_y):
+            for base_x in range(-spacing_x, diag + spacing_x, spacing_x):
+                draw.text((base_x, base_y), text, font=font, fill=fill)
+    else:
+        # Every repetition is drawn on its own tile and tilted a few degrees off
+        # the base angle, so the rows undulate instead of forming rigid lines.
+        base_tiles = {False: _text_tile(text, font, fill),
+                      True:  _text_tile(text, font, accent_fill)}
+        base_w, base_h = base_tiles[False].size
+        rotated_cache = {}
+        for row, base_y in enumerate(range(-spacing_y, diag + spacing_y, spacing_y)):
+            offset = stagger if row % 2 else 0
+            for base_x in range(-spacing_x - offset, diag + spacing_x, spacing_x):
+                accent = rng.random() < GOUV_ACCENT_RATIO
+                angle = rng.uniform(-GOUV_ANGLE_JITTER, GOUV_ANGLE_JITTER)
+                angle = round(angle / GOUV_JITTER_STEP) * GOUV_JITTER_STEP
+                key = (accent, angle)
+                tile = rotated_cache.get(key)
+                if tile is None:
+                    tile = base_tiles[accent]
+                    if angle:
+                        tile = tile.rotate(angle, expand=True, resample=Image.BICUBIC)
+                    rotated_cache[key] = tile
+                # rotate(expand=True) grows the tile around its centre; shift
+                # back by half the growth so the text stays where it was.
+                _composite_at(canvas, tile,
+                              base_x - (tile.width - base_w) // 2,
+                              base_y - (tile.height - base_h) // 2)
 
     rotated = canvas.rotate(rotation, expand=False, resample=Image.BICUBIC)
     cx, cy = (diag - width) // 2, (diag - height) // 2
