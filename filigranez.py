@@ -208,6 +208,9 @@ GOUV_GRAIN        = 0.16            # relative spread of the per-pixel ink alpha
 GOUV_GLOW_RADIUS  = 0.48
 GOUV_FONT_DIV     = 45              # auto font size: page width / 45
 CLASSIC_FONT_DIV  = 18
+CLASSIC_COLOR     = "#DC1414"
+CLASSIC_OPACITY   = 0.5
+CLASSIC_ROTATION  = 45.0
 
 
 # The reference sets its watermark in an Arial-metric face, not in DejaVu:
@@ -563,16 +566,18 @@ Examples:
                              "tiling at 25° with a few pale-red repetitions "
                              "(--opacity/--rotation/--color/--font-size still override)")
     parser.add_argument("--opacity",      "-o", type=float, default=None,
-                        metavar="FLOAT",  help="Opacity 0.0–1.0 (default: 0.5)")
+                        metavar="FLOAT",  help=f"Opacity 0.0–1.0 (default: {CLASSIC_OPACITY}, "
+                                               f"gouv: {GOUV_OPACITY})")
     parser.add_argument("--rotation",     "-r", type=float, default=None,
-                        metavar="DEG",    help="Rotation in degrees (default: 45, gouv: 25)")
+                        metavar="DEG",    help=f"Rotation in degrees (default: {CLASSIC_ROTATION:g}, "
+                                               f"gouv: {GOUV_ROTATION:g})")
     parser.add_argument("--dpi",          "-d", type=int,   default=200,
                         metavar="INT",    help="Rendering DPI (default: 200)")
     parser.add_argument("--font-size",    "-f", type=int,   default=None,
                         metavar="INT",    help="Font size in pixels (default: auto)")
     parser.add_argument("--color",        "-c", type=str,   default=None,
                         metavar="COLOR",  help="Text color: #RRGGBB or name "
-                                              "(default: #DC1414, gouv: #505050)")
+                                              f"(default: {CLASSIC_COLOR}, gouv: {GOUV_COLOR})")
     parser.add_argument("--page-size",    "-P", choices=("keep", "a4"), default="keep",
                         help="Output page size: 'keep' preserves the input page size, "
                              "'a4' normalises every page to A4 (scaled to fit, "
@@ -589,11 +594,11 @@ Examples:
     # Per-style defaults; explicit flags always win, in either style.
     style = "gouv" if args.gouv else "classic"
     if args.opacity is None:
-        args.opacity = GOUV_OPACITY if args.gouv else 0.5
+        args.opacity = GOUV_OPACITY if args.gouv else CLASSIC_OPACITY
     if args.rotation is None:
-        args.rotation = GOUV_ROTATION if args.gouv else 45.0
+        args.rotation = GOUV_ROTATION if args.gouv else CLASSIC_ROTATION
     if args.color is None:
-        args.color = GOUV_COLOR if args.gouv else "#DC1414"
+        args.color = GOUV_COLOR if args.gouv else CLASSIC_COLOR
 
     if not 0.0 <= args.opacity <= 1.0:
         error("--opacity must be between 0.0 and 1.0")

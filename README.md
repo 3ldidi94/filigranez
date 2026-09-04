@@ -1,60 +1,35 @@
 ![filigranez](logo-dark.png)
 
-PDF watermarking tool. The watermark is baked directly into the page pixels — it cannot be removed by editing PDF objects or deleting layers.
+PDF watermarking tool. The watermark is baked directly into the page pixels — it cannot be removed by editing PDF objects, deleting layers, or copying text out.
 
 ![Before / After](example.png)
 
 ```bash
-python filigranez.py document.pdf "CONFIDENTIEL"
+python filigranez.py facture.pdf "CONFIDENTIEL"
 ```
 
----
-
-![Before / After — custom color](example2.png)
-
-```bash
-python filigranez.py document.pdf "BROUILLON" --color "#1E6FFF" --rotation 30 --font-size 38
-```
+The output goes to `facture_watermark.pdf`, next to the original. Nothing is written over the input.
 
 ---
 
-## Output example
-
-![Output example](output-example.png)
-
----
-
-## How it works
-
-1. Each PDF page is rasterized into an image (via poppler)
-2. The watermark text is drawn pixel-by-pixel onto the image (via Pillow)
-3. The images are recompiled into a new PDF (via img2pdf)
-
-The resulting PDF contains only raster images — no text objects, no layers, no removable elements.
-
-Pages are rendered and composited one at a time, so memory use stays flat regardless of how many pages the document has. When consecutive pages share the same dimensions — the usual case — the watermark layer is computed once and reused.
-
-## Dependencies
-
-### Python packages
+## Install
 
 ```bash
 pip install -r requirements.txt
 ```
 
-`colorama` (colored output on Windows) and `tqdm` (progress bars) are optional — the tool runs without them, falling back to plain per-page log lines.
+`colorama` (colored output on Windows) and `tqdm` (progress bars) are optional — the tool runs without them, printing one line per page instead of a bar.
 
-### System — Linux
+Rendering needs poppler:
 
 ```bash
-sudo apt-get install poppler-utils
+sudo apt-get install poppler-utils          # Debian / Ubuntu
+brew install poppler                        # macOS
 ```
 
-### System — Windows
+On Windows, download [poppler-windows](https://github.com/oschwartz10612/poppler-windows/releases) and point `--poppler-path` at its `bin/` directory.
 
-Download and install poppler for Windows: https://github.com/oschwartz10612/poppler-windows/releases
-
-Then pass the bin path with `--poppler-path`.
+---
 
 ## Usage
 
@@ -62,117 +37,187 @@ Then pass the bin path with `--poppler-path`.
 filigranez.py <input> <text> [output] [options]
 ```
 
-### Arguments
+### Positional arguments
 
-| Argument | Description |
-|----------|-------------|
-| `input` | Input PDF file or directory |
-| `text` | Watermark text |
-| `output` | Output PDF file (single file mode only, optional) |
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `input` | yes | Input PDF file, or a directory to process recursively |
+| `text` | yes | The watermark text |
+| `output` | no | Output PDF path. Single-file mode only; ignored for a directory. Defaults to `<input>_<suffix>.pdf` |
 
 ### Options
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--opacity` | `-o` | `0.5` | Opacity from 0.0 (invisible) to 1.0 (solid) |
-| `--rotation` | `-r` | `45` | Rotation angle in degrees |
-| `--page-size` | `-P` | `keep` | `keep` preserves the input page size; `a4` normalises every page to A4 |
-| `--dpi` | `-d` | `200` | Rendering resolution (higher = better quality, larger file) |
-| `--font-size` | `-f` | auto | Font size in pixels (default: page width / 18) |
-| `--color` | `-c` | `#DC1414` | Watermark text color — `#RRGGBB` or a color name (e.g. `red`, `navy`) |
-| `--quality` | `-q` | `95` | JPEG quality 1–95 (lower = smaller file, more compression) |
-| `--suffix-name` | `-s` | `watermark` | Suffix appended to output filename(s) |
-| `--poppler-path` | `-p` | — | Path to poppler `bin/` directory (Windows) |
+| `--gouv` | `-g` | off | Alternate style reproducing the filigrane.beta.gouv.fr watermark — see [below](#the---gouv-style) |
+| `--opacity` | `-o` | `0.5` | Opacity from `0.0` (invisible) to `1.0` (solid) |
+| `--rotation` | `-r` | `45` | Rotation in degrees. `0` is horizontal; negative values tilt the other way |
+| `--dpi` | `-d` | `200` | Rendering resolution. Higher is sharper and heavier |
+| `--font-size` | `-f` | auto | Font size in pixels. Auto means page width ÷ 18 |
+| `--color` | `-c` | `#DC1414` | Text color, `#RRGGBB` or a CSS name such as `navy` |
+| `--page-size` | `-P` | `keep` | `keep` preserves the input page size, `a4` normalises every page to A4 |
+| `--quality` | `-q` | `95` | JPEG quality, 1–95. Lower means a smaller file |
+| `--suffix-name` | `-s` | `watermark` | Suffix appended to output names |
+| `--poppler-path` | `-p` | — | Path to poppler's `bin/` directory (Windows) |
+| `--help` | `-h` | — | Full list of flags |
 
-### Page size
+Values are validated before any work starts, so a typo fails immediately rather than halfway through a batch.
 
-By default the input page size is preserved (the rendering DPI is embedded so the resulting PDF matches the original page size).
+---
 
-Pass `--page-size a4` to normalise every page to A4 instead. Pages are scaled to fit and centred, keeping their aspect ratio — nothing is stretched or cropped, so a Letter page comes out as A4 with a white band at the top and bottom. A page that is already A4 is passed through untouched rather than resampled, and landscape pages become landscape A4 rather than being rotated. Normalisation happens before the watermark is drawn, so the watermark covers the added margins too.
+## The options, side by side
 
-## Examples
+The same invoice, six settings:
+
+![Option gallery](example-options.png)
 
 ```bash
-# Single file, default settings → document_watermark.pdf
-python filigranez.py document.pdf "CONFIDENTIEL"
-
-# Custom opacity and rotation
-python filigranez.py document.pdf "DRAFT" --opacity 0.3 --rotation 30
-
-# Discreet watermark — light grey, low opacity, small text
-python filigranez.py document.pdf "INTERNE" --color "#505050" --opacity 0.35 --font-size 40
-
-# Custom watermark color (hex or name)
-python filigranez.py document.pdf "BROUILLON" --color "#1E6FFF"
-python filigranez.py document.pdf "SECRET" --color navy
-
-# Smaller output file (more JPEG compression)
-python filigranez.py document.pdf "INTERNE" --quality 70
-
-# Normalise every page to A4 instead of keeping the original size
-python filigranez.py document.pdf "INTERNE" --page-size a4
-
-# Explicit output filename
-python filigranez.py document.pdf "SECRET" output.pdf
-
-# Entire directory → creates docs_watermark/ preserving subdirectory structure
-python filigranez.py ./docs/ "INTERNE"
-
-# Custom suffix → creates docs_confidentiel/
-python filigranez.py ./docs/ "CONFIDENTIEL" --suffix-name confidentiel
-
-# High quality
-python filigranez.py document.pdf "CONFIDENTIEL" --dpi 300
-
-# Windows with explicit poppler path
-python filigranez.py document.pdf "DRAFT" --poppler-path "C:/poppler/bin"
+python filigranez.py facture.pdf "CONFIDENTIEL"
+python filigranez.py facture.pdf "INTERNE" --opacity 0.22
+python filigranez.py facture.pdf "COPIE" --rotation 0 --color "#0F7A3D"
+python filigranez.py facture.pdf "BROUILLON" --color "#1E6FFF" --rotation 30
+python filigranez.py facture.pdf "NE PAS DIFFUSER" --font-size 34 --opacity 0.35
+python filigranez.py facture.pdf "ORIGINAL" --font-size 150 --color navy
 ```
 
-Run `python filigranez.py --help` for the full list of flags.
+A low `--opacity` keeps the document comfortable to read; a large `--font-size` with a low opacity gives a single sweeping mark instead of a tiled pattern.
+
+---
+
+## The `--gouv` style
+
+`--gouv` swaps the tiled stamp for a second style, matched against the watermark produced by [filigrane.beta.gouv.fr](https://filigrane.beta.gouv.fr) — the French service people use to mark ID documents and payslips before sending them to a landlord or an agency.
+
+![The --gouv style](example-gouv.png)
+
+```bash
+python filigranez.py piece-identite.pdf "document destiné exclusivement à la location" --gouv
+```
+
+It differs from the default style in more than its colors:
+
+- **One ink per line**, never two on the same line. Four inks — near-black, light grey, navy and red — are dealt so that any four consecutive lines carry each of them exactly once, in a random order.
+- **Each line follows a continuous sine** running the full width of the page, one cycle per repetition of the text. Because the wave never restarts between repetitions, a cut, a splice or a pasted patch breaks the curve and leaves a visible step in an otherwise smooth line.
+- **The text is grainy and sits in a soft halo**, rather than being printed crisp.
+- Shallower angle (25°), wider line spacing, smaller type, and a lighter overall weight than the default style.
+
+The wave amplitude, the ink order and the per-line weight are derived from the watermark text, so a given text always renders identically while two different texts differ. `--opacity`, `--rotation`, `--color` and `--font-size` still override the preset; `--color` sets the light grey of the palette, the three other inks are fixed.
+
+---
+
+## Page size
+
+By default the input page size is preserved. Pass `--page-size a4` to normalise every page to A4:
+
+![Page size](example-pagesize.png)
+
+Pages are scaled to fit and centred, keeping their aspect ratio — nothing is stretched or cropped, so a Letter page comes out as A4 with a white band top and bottom. A page that is already A4 passes through untouched rather than being resampled, and a landscape page becomes landscape A4 rather than being rotated. Normalisation happens before the watermark is drawn, so the watermark covers the added margins too.
+
+---
 
 ## Directory mode
 
-When the input is a directory, the tool:
-- Scans recursively for all `.pdf` files
-- Preserves the original directory structure in the output
-- Creates an output directory named `<input_dir>_<suffix>`
-- Leaves original files untouched
-- Skips unreadable/corrupt PDFs and keeps going (a summary of failures is printed, and the exit code is non-zero if any file failed)
+Point `input` at a directory and every `.pdf` under it is processed:
+
+```bash
+python filigranez.py ./dossiers/ "INTERNE"
+```
 
 ```
-docs/
-├── report.pdf
-└── contracts/
-    └── contract.pdf
-
-docs_watermark/
-├── report_watermark.pdf
-└── contracts/
-    └── contract_watermark.pdf
+dossiers/                        dossiers_watermark/
+├── rapport.pdf          →       ├── rapport_watermark.pdf
+└── contrats/                    └── contrats/
+    └── bail.pdf                     └── bail_watermark.pdf
 ```
+
+- Scans recursively, preserving the directory structure
+- Writes to a sibling directory named `<input_dir>_<suffix>`
+- Leaves the originals untouched
+- Skips unreadable or corrupt PDFs and keeps going; a summary is printed at the end and the exit code is non-zero if any file failed
+- Processes duplicates once (symlinks, or case-variant names on case-insensitive filesystems)
+
+Use `--suffix-name` to rename both the directory and the files:
+
+```bash
+python filigranez.py ./dossiers/ "CONFIDENTIEL" --suffix-name confidentiel
+# → dossiers_confidentiel/rapport_confidentiel.pdf
+```
+
+---
+
+## Output
+
+![Terminal output](output-example.png)
+
+The progress bar follows the actual work rather than the page count, so it still moves on a single-page document. It disappears when output is redirected to a file or a pipe, where one line per page is printed instead, without escape codes. Colors are dropped when `NO_COLOR` is set, and box-drawing characters fall back to plain ASCII on consoles that cannot encode them.
+
+---
+
+## More examples
+
+```bash
+# Explicit output filename
+python filigranez.py facture.pdf "SECRET" archive/facture-2026.pdf
+
+# Print quality
+python filigranez.py facture.pdf "CONFIDENTIEL" --dpi 300
+
+# Smaller file, for email
+python filigranez.py facture.pdf "INTERNE" --quality 70 --dpi 150
+
+# Discreet mark on a document meant to stay readable
+python filigranez.py contrat.pdf "COPIE NON CERTIFIÉE" --opacity 0.2 --font-size 40
+
+# Normalise a batch of mixed formats to A4
+python filigranez.py ./scans/ "ARCHIVE" --page-size a4
+
+# The alternate style, over a whole folder
+python filigranez.py ./pieces/ "réservé au dossier de location" --gouv
+
+# Windows
+python filigranez.py facture.pdf "DRAFT" --poppler-path "C:/poppler/bin"
+```
+
+---
+
+## How it works
+
+1. Each page is rasterised with poppler
+2. The watermark is drawn onto the pixels with Pillow
+3. The pages are recompiled into a PDF with img2pdf
+
+The result contains only raster images — no text objects, no annotations, no optional content groups, nothing selectable or deletable.
+
+Pages are rendered and composited one at a time, so memory stays flat regardless of document length. When consecutive pages share dimensions — the usual case — the watermark layer is computed once and reused.
+
+---
 
 ## Safety checks
 
 - Refuses to write the output over the input file
-- Validates `--opacity`, `--dpi`, `--font-size`, `--quality` and `--color` before doing any work
+- Validates `--opacity`, `--dpi`, `--font-size`, `--quality`, `--page-size` and `--color` before doing any work
 - Rejects empty watermark text
-- Duplicate files (symlinks, case-variant names) are processed once in directory mode
+- Creates missing output directories rather than failing at the last step
 
-## License
-
-GPL v3 — see [LICENSE](LICENSE)
-
-Any modification or project integrating filigranez must remain open source under the same license.
+---
 
 ## Nix / NixOS
 
-A `flake.nix` is included for reproducible builds with all dependencies pinned, poppler included.
+A `flake.nix` is included for reproducible builds, poppler included.
 
 ```bash
-# Enter a shell with filigranez and all dependencies available
+# Shell with filigranez and all dependencies
 nix develop
-filigranez document.pdf "CONFIDENTIEL"
+filigranez facture.pdf "CONFIDENTIEL"
 
-# Or run it directly without installing anything
-nix run . -- document.pdf "CONFIDENTIEL"
+# Or run it directly, installing nothing
+nix run . -- facture.pdf "CONFIDENTIEL"
 ```
+
+---
+
+## License
+
+GPL v3 — see [LICENSE](LICENSE).
+
+Any modification, or any project integrating filigranez, must remain open source under the same license.
