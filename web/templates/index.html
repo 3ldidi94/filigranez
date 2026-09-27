@@ -21,6 +21,7 @@
   }
   *{box-sizing:border-box}
   html,body{margin:0}
+  body{overflow-x:hidden}
   body{background:var(--bg);color:var(--ink);
        font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
   a{color:var(--accent)}
@@ -32,7 +33,8 @@
   select.mini{background:var(--field);color:var(--ink);border:1px solid var(--line);
     border-radius:8px;padding:6px 10px;font-size:13px;line-height:1.3;
     width:auto;max-width:100%;flex:0 0 auto;white-space:nowrap;cursor:pointer}
-  .tagline{color:var(--muted);font-size:12.5px;line-height:1.3;margin:0;white-space:nowrap}
+  .tagline{color:var(--muted);font-size:12.5px;line-height:1.3;margin:0;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
   .check{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;
     margin:0 0 4px;cursor:pointer}
   .check input{margin:0}
@@ -117,9 +119,11 @@
   .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:30px}
   .foot .privacy-foot{color:var(--ink);font-size:14px;font-weight:600;line-height:1.45;
     max-width:540px;margin:0 auto 16px}
-  .foot .ghline{display:flex;align-items:center;justify-content:center;gap:10px;margin:0 0 12px}
+  .foot .ghline{display:flex;align-items:center;justify-content:center;gap:10px;
+    margin:0 0 12px;flex-wrap:wrap}
   .foot .gh{display:inline-flex}
-  .foot .ghurl{color:var(--muted);text-decoration:none;font-size:13px}
+  .foot .ghurl{color:var(--muted);text-decoration:none;font-size:13px;
+    overflow-wrap:anywhere;max-width:100%}
   .foot .ghurl:hover{color:var(--accent)}
   .foot .cli{margin:0}
   .foot code{background:var(--field);padding:1px 5px;border-radius:4px}
