@@ -30,7 +30,9 @@
   header .sp{flex:1}
   header .ctl{display:flex;align-items:center;gap:8px}
   select.mini{background:var(--field);color:var(--ink);border:1px solid var(--line);
-    border-radius:8px;padding:6px 8px;font-size:13px}
+    border-radius:8px;padding:6px 10px;font-size:13px;line-height:1.3;
+    min-width:58px;max-width:100%;flex:0 0 auto;white-space:nowrap;cursor:pointer}
+  select.mini option{background:var(--field);color:var(--ink)}
   .gh{display:inline-flex;align-items:center;justify-content:center;width:34px;
     height:34px;border:1px solid var(--line);border-radius:8px;color:var(--ink);
     text-decoration:none}
@@ -297,7 +299,11 @@ const I18N = {
     total_word:"au total"}
 };
 const $ = s => document.querySelector(s);
-let lang = localStorage.getItem("fz_lang") || "fr";
+function detectLang(){
+  const n=(navigator.language||navigator.userLanguage||"en").toLowerCase();
+  return n.indexOf("fr")===0?"fr":"en";   // fr->fr, en->en, autre->en
+}
+let lang = localStorage.getItem("fz_lang") || detectLang();
 function applyLang(){
   const d = I18N[lang];
   document.documentElement.lang = lang;
