@@ -211,15 +211,15 @@ CLASSIC_FONT_DIV  = 18
 CLASSIC_COLOR     = "#DC1414"
 CLASSIC_OPACITY   = 0.5
 CLASSIC_ROTATION  = 45.0
-# Invisible tracing layer: a faint tiled copy of the watermark text at a distinct
-# angle, imperceptible to the eye but recoverable by contrast analysis (--reveal).
-# On by default; --no-hidden turns it off. Payload = the watermark text. This is
-# the low-opacity variant; a robust DCT/spread-spectrum layer can be added on top
-# later without changing this.
-HIDDEN_OPACITY    = 0.02
+# Invisible tracing layer: a tiled copy of the watermark text embedded in the
+# BLUE channel only, at a distinct angle. The eye is far less sensitive to blue
+# than to luminance, so a small blue dip is imperceptible (it barely moves the
+# luminance) yet recovers cleanly from the yellow (R-B) signal via --reveal. On
+# by default; --no-hidden turns it off. Payload = the watermark text. A robust
+# DCT/spread-spectrum layer can still be added on top later.
+HIDDEN_BLUE_DELTA = 6       # blue-channel dip under the glyphs (0-255)
 HIDDEN_ROTATION   = -8.0
-HIDDEN_FONT_DIV   = 30
-HIDDEN_COLOR      = (0, 0, 0)
+HIDDEN_FONT_DIV   = 34
 
 
 # The reference sets its watermark in an Arial-metric face, not in DejaVu:
@@ -526,23 +526,29 @@ def watermark_pdf(
                 layer_cache[key] = layer
             elif bar is not None:
                 bar.update(LAYER_SHARE)   # reused layer: that work is free
-            composed = Image.alpha_composite(page, layer)
+            result = Image.alpha_composite(page, layer).convert("RGB")
             if hidden:
+                # blue-only tracing mark: near-invisible, read back from R-B
                 hkey = (page.width, page.height)
-                hlayer = hidden_cache.get(hkey)
-                if hlayer is None:
+                cov = hidden_cache.get(hkey)
+                if cov is None:
                     hfont = max(12, page.width // HIDDEN_FONT_DIV)
-                    hlayer = make_watermark_layer(
-                        page.width, page.height, text, HIDDEN_OPACITY,
-                        HIDDEN_ROTATION, hfont, HIDDEN_COLOR, "classic")
-                    hidden_cache[hkey] = hlayer
-                composed = Image.alpha_composite(composed, hlayer)
-            result = composed.convert("RGB")
+                    hl = make_watermark_layer(
+                        page.width, page.height, text, 1.0, HIDDEN_ROTATION,
+                        hfont, (0, 0, 0), "classic")
+                    cov = hl.getchannel("A")          # glyph coverage 0..255
+                    hidden_cache[hkey] = cov
+                r, g, b = result.split()
+                dip = cov.point(lambda v: int(v * HIDDEN_BLUE_DELTA / 255))
+                result = Image.merge("RGB", (r, g, ImageChops.subtract(b, dip)))
 
             out_jpg = os.path.join(tmpdir, f"page_{i:04d}.jpg")
             # Embed the DPI so img2pdf sizes the PDF page correctly. Without it
             # img2pdf assumes 96 DPI and pages come out physically oversized.
-            result.save(out_jpg, "JPEG", quality=quality, dpi=(dpi, dpi))
+            save_kw = {"quality": quality, "dpi": (dpi, dpi)}
+            if hidden:
+                save_kw["subsampling"] = 0   # keep chroma so the blue mark survives
+            result.save(out_jpg, "JPEG", **save_kw)
             img_paths.append(out_jpg)
             os.remove(page_path)  # free the uncompressed render early
             if bar is not None:
@@ -585,10 +591,9 @@ def reveal_pdf(input_path: Path, output_path: str, dpi: int,
         img_paths = []
         for i, page_path in enumerate(page_paths):
             with Image.open(page_path) as im:
-                gray = im.convert("L")
-            local = gray.filter(ImageFilter.GaussianBlur(8))
-            resid = ImageChops.subtract(local, gray)   # bright where locally darker
-            resid = ImageOps.autocontrast(resid, cutoff=0.5)
+                r, _, b = im.convert("RGB").split()
+            resid = ImageChops.subtract(r, b)          # blue dip shows up as yellow
+            resid = ImageOps.autocontrast(resid, cutoff=0.2)
             out_jpg = os.path.join(tmpdir, f"rev_{i:04d}.jpg")
             resid.convert("RGB").save(out_jpg, "JPEG", quality=90, dpi=(dpi, dpi))
             img_paths.append(out_jpg)

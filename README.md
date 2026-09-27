@@ -184,7 +184,7 @@ python filigranez.py facture.pdf "DRAFT" --poppler-path "C:/poppler/bin"
 
 ## Invisible tracing (leak tracing)
 
-On top of the visible watermark, every output also carries an **invisible tracing layer**: a very faint, tiled copy of the watermark text, at a different angle, imperceptible to the eye but recoverable by analysis. It is **on by default** (the payload is the watermark text) and survives casual handling such as recompression or a screenshot.
+On top of the visible watermark, every output also carries an **invisible tracing layer**: a tiled copy of the watermark text, at a different angle, embedded in the **blue channel only**. The eye is far less sensitive to blue than to brightness, so the mark barely moves the luminance (a couple of levels) and is not visible on the page, yet it recovers cleanly from the yellow (R-B) signal. It is **on by default**, the payload is the watermark text.
 
 The point: if an attacker removes the visible watermark and a still-usable document leaks, the hidden layer can tie the leak back to what was marked.
 
@@ -197,7 +197,7 @@ python filigranez.py leaked.pdf out.pdf --reveal    # explicit output
 
 Turn the layer off with `--no-hidden` (the output is then byte-for-byte the classic result).
 
-Honest limits: this is the low-opacity variant. It resists recompression, screenshots and moderate resizing, but not aggressive cropping, rotation, or a full re-creation of the document (retyping). A more robust, geometry-resistant layer (DCT spread-spectrum) can be added on top later without changing this behaviour.
+Honest limits: it resists a screenshot and a re-save at good quality, but aggressive re-compression with chroma subsampling (heavy JPEG), strong downscaling, cropping, rotation, or a full re-creation of the document (retyping) can wipe it. For a mark that is both invisible and robust to those, the next step is a DCT spread-spectrum carrier recovered by correlation; it can be layered on top without changing this behaviour.
 
 ## How it works
 

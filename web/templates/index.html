@@ -31,7 +31,11 @@
   header .ctl{display:flex;align-items:center;gap:8px}
   select.mini{background:var(--field);color:var(--ink);border:1px solid var(--line);
     border-radius:8px;padding:6px 10px;font-size:13px;line-height:1.3;
-    min-width:58px;max-width:100%;flex:0 0 auto;white-space:nowrap;cursor:pointer}
+    width:auto;max-width:100%;flex:0 0 auto;white-space:nowrap;cursor:pointer}
+  .tagline{color:var(--muted);font-size:12.5px;line-height:1.3;margin:0;max-width:340px}
+  .check{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;
+    margin:0 0 4px;cursor:pointer}
+  .check input{margin:0}
   select.mini option{background:var(--field);color:var(--ink)}
   .gh{display:inline-flex;align-items:center;justify-content:center;width:34px;
     height:34px;border:1px solid var(--line);border-radius:8px;color:var(--ink);
@@ -111,9 +115,12 @@
   .preview-card canvas{width:100%;height:auto;border:1px solid var(--line);
     border-radius:8px;background:#fff;display:block}
   .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:30px}
-  .foot .slogan{color:var(--ink);font-size:14.5px;font-weight:600;line-height:1.45;
-    max-width:520px;margin:0 auto 14px}
-  .foot .gh{display:inline-flex;margin:0 auto 12px}
+  .foot .privacy-foot{color:var(--ink);font-size:14px;font-weight:600;line-height:1.45;
+    max-width:540px;margin:0 auto 16px}
+  .foot .ghline{display:flex;align-items:center;justify-content:center;gap:10px;margin:0 0 12px}
+  .foot .gh{display:inline-flex}
+  .foot .ghurl{color:var(--muted);text-decoration:none;font-size:13px}
+  .foot .ghurl:hover{color:var(--accent)}
   .foot .cli{margin:0}
   .foot code{background:var(--field);padding:1px 5px;border-radius:4px}
 </style>
@@ -122,6 +129,7 @@
 <div class="wrap">
   <header>
     <img src="{{ url_for('static', filename='logo.svg') }}" alt="filigranez">
+    <p class="tagline" data-i18n="slogan">Your documents, your control. Watermarked in seconds, never stored.</p>
     <div class="sp"></div>
     <div class="ctl">
       <select id="lang" class="mini" title="Language">
@@ -221,6 +229,11 @@
             <label for="suffix" data-i18n="l_suffix">Filename suffix</label>
             <input type="text" id="suffix" name="suffix" value="{{ d.suffix }}">
           </div>
+          <div class="field">
+            <label class="check"><input type="checkbox" id="secret" name="hidden" checked>
+              <span data-i18n="l_secret">Secret watermark</span></label>
+            <div class="hint" data-i18n="d_secret">Invisible tracing mark, on by default.</div>
+          </div>
         </div>
       </details>
 
@@ -230,12 +243,6 @@
         <div class="ptext" id="ptext" aria-live="polite"></div></div>
       <div class="msg" id="msg" aria-live="polite"></div>
 
-      <p class="privacy">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2"><path d="M12 2 4 5v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V5l-8-3Z"/></svg>
-        <span data-i18n="privacy">No file is kept on the server. Neither the original nor the
-          watermarked file is stored. Both are deleted right after your download.</span>
-      </p>
     </form>
 
     <!-- ============ PREVIEW ============ -->
@@ -248,13 +255,17 @@
   </div>
 
   <footer class="foot">
-    <p class="slogan" data-i18n="slogan">Your documents, your control. Watermarked in seconds, never stored.</p>
-    <a class="gh" id="gh" href="https://github.com/3ldidi94/filigranez"
-         target="_blank" rel="noopener" title="GitHub">
+    <p class="privacy-foot" data-i18n="privacy">No file is kept on the server. Neither the original nor the watermarked file is stored. Both are deleted right after your download.</p>
+    <p class="ghline">
+      <a class="gh" id="gh" href="https://github.com/3ldidi94/filigranez"
+         target="_blank" rel="noopener" title="GitHub" aria-label="GitHub">
         <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
         </svg>
       </a>
+      <a class="ghurl" href="https://github.com/3ldidi94/filigranez"
+         target="_blank" rel="noopener">https://github.com/3ldidi94/filigranez</a>
+    </p>
     <p class="cli" data-i18n-html="foot">Same engine as the CLI:
       <code>filigranez.py doc.pdf "TEXT"</code></p>
   </footer>
@@ -284,6 +295,7 @@ const I18N = {
     cancel:"Cancel",cancelled:"Cancelled",clear:"Clear all",st_queued:"queued",
     st_proc:"processing",st_done:"done",st_failed:"failed",files_word:"files",
     total_word:"total",
+    l_secret:"Secret watermark",d_secret:"Invisible tracing mark, on by default.",
     slogan:"Your documents, your control, your choice. Watermarked in seconds, never stored."},
   fr:{th_oled:"Noir (OLED)",th_grey:"Gris",th_white:"Blanc",h_settings:"Paramètres",
     l_files:"Documents (PDF)",drop_big:"Déposez vos fichiers PDF ici",
@@ -305,6 +317,7 @@ const I18N = {
     cancel:"Annuler",cancelled:"Annulé",clear:"Tout effacer",st_queued:"en attente",
     st_proc:"en cours",st_done:"OK",st_failed:"échec",files_word:"fichiers",
     total_word:"au total",
+    l_secret:"Watermark secrète",d_secret:"Marque de traçage invisible, activée par défaut.",
     slogan:"Vos documents, votre contrôle, votre choix. Filigranés en un instant, jamais conservés."}
 };
 const $ = s => document.querySelector(s);
@@ -538,7 +551,7 @@ function zipStore(entries){
 /* ---------------- submit: one request per file, progress + ETA ---------------- */
 const form=$("#form"),go=$("#go"),cancelBtn=$("#cancel"),msg=$("#msg"),prog=$("#prog"),
       pfill=$("#pfill"),ptext=$("#ptext"),pageEl=$("#page_size"),
-      suffixEl=$("#suffix"),dpiEl=$("#dpi"),qualEl=$("#quality");
+      suffixEl=$("#suffix"),dpiEl=$("#dpi"),qualEl=$("#quality"),secretEl=$("#secret");
 let currentXhr=null,cancelReq=false;
 const FR_ERR=[
   [/^--opacity must be between .*/,"l'opacité doit être comprise entre 0.0 et 1.0"],
@@ -584,6 +597,7 @@ function sendOne(file,onprog){
     fd.append("quality",qualEl.value);
     if(fontEl.value) fd.append("font_size",fontEl.value);
     fd.append("page_size",pageEl.value);fd.append("suffix",suffixEl.value);
+    fd.append("hidden",secretEl.checked?"on":"off");
     fd.append("pdf",file,file.name);
     const xhr=new XMLHttpRequest();currentXhr=xhr;
     xhr.open("POST",form.action);xhr.responseType="blob";
@@ -663,7 +677,7 @@ const SKEY="fz_settings";
 function saveSettings(){try{localStorage.setItem(SKEY,JSON.stringify({
   text:text.value,gouv:gouv.checked,opacity:opacity.value,rotation:rotation.value,
   color:color.value,dpi:dpiEl.value,quality:qualEl.value,font_size:fontEl.value,
-  page_size:pageEl.value,suffix:suffixEl.value}));}catch(_){}}
+  page_size:pageEl.value,suffix:suffixEl.value,hidden:secretEl.checked}));}catch(_){}}
 function loadSettings(){let v;try{v=JSON.parse(localStorage.getItem(SKEY)||"null");}catch(_){v=null;}
   if(!v)return;
   if(v.text!=null)text.value=v.text;
@@ -675,7 +689,8 @@ function loadSettings(){let v;try{v=JSON.parse(localStorage.getItem(SKEY)||"null
   if(v.quality!=null)qualEl.value=v.quality;
   if(v.font_size!=null)fontEl.value=v.font_size;
   if(v.page_size!=null)pageEl.value=v.page_size;
-  if(v.suffix!=null)suffixEl.value=v.suffix;}
+  if(v.suffix!=null)suffixEl.value=v.suffix;
+  if(typeof v.hidden==="boolean")secretEl.checked=v.hidden;}
 
 /* ---------------- init ---------------- */
 loadSettings();

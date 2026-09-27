@@ -157,6 +157,7 @@ def watermark():
         quality = _num("quality", int, 95)
         page_size = request.form.get("page_size", "keep")
         suffix = _safe_suffix(request.form.get("suffix", ""))
+        hidden = request.form.get("hidden", "on") != "off"
         if page_size not in ("keep", "a4"):
             raise ValueError("page size must be 'keep' or 'a4'")
         if len(uploads) > MAX_FILES:
@@ -183,7 +184,8 @@ def watermark():
                 upload.save(src)
                 eff_dpi = _bounded_dpi(src, dpi)
                 fz.watermark_pdf(src, text, str(out), opacity, rotation, eff_dpi,
-                                 font_size, rgb, quality, None, style, page_size)
+                                 font_size, rgb, quality, None, style, page_size,
+                                 hidden=hidden)
                 stem = Path(secure_filename(upload.filename)).stem or "document"
                 name = f"{stem}_{suffix}.pdf"
                 n = 1
