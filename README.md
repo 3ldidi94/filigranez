@@ -1,6 +1,6 @@
 ![filigranez](logo-dark.png)
 
-PDF watermarking tool. The watermark is baked directly into the page pixels — it cannot be removed by editing PDF objects, deleting layers, or copying text out.
+PDF watermarking tool. The watermark is baked directly into the page pixels - it cannot be removed by editing PDF objects, deleting layers, or copying text out.
 
 ![Before / After](example.png)
 
@@ -18,7 +18,7 @@ The output goes to `facture_watermark.pdf`, next to the original. Nothing is wri
 pip install -r requirements.txt
 ```
 
-`colorama` (colored output on Windows) and `tqdm` (progress bars) are optional — the tool runs without them, printing one line per page instead of a bar.
+`colorama` (colored output on Windows) and `tqdm` (progress bars) are optional - the tool runs without them, printing one line per page instead of a bar.
 
 Rendering needs poppler:
 
@@ -49,17 +49,17 @@ filigranez.py <input> <text> [output] [options]
 
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--gouv` | `-g` | off | Alternate style reproducing the filigrane.beta.gouv.fr watermark — see [below](#the---gouv-style) |
+| `--gouv` | `-g` | off | Alternate style reproducing the filigrane.beta.gouv.fr watermark - see [below](#the---gouv-style) |
 | `--opacity` | `-o` | `0.5` | Opacity from `0.0` (invisible) to `1.0` (solid) |
 | `--rotation` | `-r` | `45` | Rotation in degrees. `0` is horizontal; negative values tilt the other way |
 | `--dpi` | `-d` | `200` | Rendering resolution. Higher is sharper and heavier |
-| `--font-size` | `-f` | auto | Font size in pixels. Auto means page width ÷ 18 |
+| `--font-size` | `-f` | auto | Font size in pixels. Auto means page width / 18 |
 | `--color` | `-c` | `#DC1414` | Text color, `#RRGGBB` or a CSS name such as `navy` |
 | `--page-size` | `-P` | `keep` | `keep` preserves the input page size, `a4` normalises every page to A4 |
-| `--quality` | `-q` | `95` | JPEG quality, 1–95. Lower means a smaller file |
+| `--quality` | `-q` | `95` | JPEG quality, 1-95. Lower means a smaller file |
 | `--suffix-name` | `-s` | `watermark` | Suffix appended to output names |
-| `--poppler-path` | `-p` | — | Path to poppler's `bin/` directory (Windows) |
-| `--help` | `-h` | — | Full list of flags |
+| `--poppler-path` | `-p` | - | Path to poppler's `bin/` directory (Windows) |
+| `--help` | `-h` | - | Full list of flags |
 
 Values are validated before any work starts, so a typo fails immediately rather than halfway through a batch.
 
@@ -86,7 +86,7 @@ A low `--opacity` keeps the document comfortable to read; a large `--font-size` 
 
 ## The `--gouv` style
 
-`--gouv` swaps the tiled stamp for a second style, matched against the watermark produced by [filigrane.beta.gouv.fr](https://filigrane.beta.gouv.fr) — the French service people use to mark ID documents and payslips before sending them to a landlord or an agency.
+`--gouv` swaps the tiled stamp for a second style, matched against the watermark produced by [filigrane.beta.gouv.fr](https://filigrane.beta.gouv.fr) - the French service people use to mark ID documents and payslips before sending them to a landlord or an agency.
 
 ![The --gouv style](example-gouv.png)
 
@@ -96,7 +96,7 @@ python filigranez.py piece-identite.pdf "document destiné exclusivement à la l
 
 It differs from the default style in more than its colors:
 
-- **One ink per line**, never two on the same line. Four inks — near-black, light grey, navy and red — are dealt so that any four consecutive lines carry each of them exactly once, in a random order.
+- **One ink per line**, never two on the same line. Four inks - near-black, light grey, navy and red - are dealt so that any four consecutive lines carry each of them exactly once, in a random order.
 - **Each line follows a continuous sine** running the full width of the page, one cycle per repetition of the text. Because the wave never restarts between repetitions, a cut, a splice or a pasted patch breaks the curve and leaves a visible step in an otherwise smooth line.
 - **The text is grainy and sits in a soft halo**, rather than being printed crisp.
 - Shallower angle (25°), wider line spacing, smaller type, and a lighter overall weight than the default style.
@@ -111,7 +111,7 @@ By default the input page size is preserved. Pass `--page-size a4` to normalise 
 
 ![Page size](example-pagesize.png)
 
-Pages are scaled to fit and centred, keeping their aspect ratio — nothing is stretched or cropped, so a Letter page comes out as A4 with a white band top and bottom. A page that is already A4 passes through untouched rather than being resampled, and a landscape page becomes landscape A4 rather than being rotated. Normalisation happens before the watermark is drawn, so the watermark covers the added margins too.
+Pages are scaled to fit and centred, keeping their aspect ratio - nothing is stretched or cropped, so a Letter page comes out as A4 with a white band top and bottom. A page that is already A4 passes through untouched rather than being resampled, and a landscape page becomes landscape A4 rather than being rotated. Normalisation happens before the watermark is drawn, so the watermark covers the added margins too.
 
 ---
 
@@ -125,7 +125,7 @@ python filigranez.py ./dossiers/ "INTERNE"
 
 ```
 dossiers/                        dossiers_watermark/
-├── rapport.pdf          →       ├── rapport_watermark.pdf
+├── rapport.pdf          ->       ├── rapport_watermark.pdf
 └── contrats/                    └── contrats/
     └── bail.pdf                     └── bail_watermark.pdf
 ```
@@ -140,7 +140,7 @@ Use `--suffix-name` to rename both the directory and the files:
 
 ```bash
 python filigranez.py ./dossiers/ "CONFIDENTIEL" --suffix-name confidentiel
-# → dossiers_confidentiel/rapport_confidentiel.pdf
+# -> dossiers_confidentiel/rapport_confidentiel.pdf
 ```
 
 ---
@@ -186,9 +186,9 @@ python filigranez.py facture.pdf "DRAFT" --poppler-path "C:/poppler/bin"
 2. The watermark is drawn onto the pixels with Pillow
 3. The pages are recompiled into a PDF with img2pdf
 
-The result contains only raster images — no text objects, no annotations, no optional content groups, nothing selectable or deletable.
+The result contains only raster images - no text objects, no annotations, no optional content groups, nothing selectable or deletable.
 
-Pages are rendered and composited one at a time, so memory stays flat regardless of document length. When consecutive pages share dimensions — the usual case — the watermark layer is computed once and reused.
+Pages are rendered and composited one at a time, so memory stays flat regardless of document length. When consecutive pages share dimensions - the usual case - the watermark layer is computed once and reused.
 
 ---
 
@@ -200,6 +200,34 @@ Pages are rendered and composited one at a time, so memory stays flat regardless
 - Creates missing output directories rather than failing at the last step
 
 ---
+
+## Web interface
+
+A small web front-end lives in [`web/`](web/), on top of the exact same engine - the CLI is unaffected and stays fully usable on its own. It offers:
+
+- **Drag & drop of several PDFs at once** - one file downloads as a PDF, several as a ZIP.
+- Every CLI option, pre-filled with the defaults but editable, plus a **gouv style** toggle.
+- **EN/FR** and **three themes** (AMOLED black by default, grey, white).
+- A **live preview** that adapts to the chosen options.
+- Nothing is stored server-side - original and output are deleted as soon as the download starts.
+
+```bash
+cd web
+docker compose up -d          # -> http://localhost:8000
+```
+
+The image bundles poppler and the Liberation fonts, so it runs identically on any machine with Docker - nothing else to install. To run it without Docker for development:
+
+```bash
+pip install -r requirements.txt -r web/requirements.txt
+python web/webapp.py          # -> http://localhost:8000
+```
+
+- Upload limit: **100 MB** per file.
+- Uploads are processed in a temporary directory and deleted immediately - nothing is stored server-side.
+- **No authentication** - intended for local or trusted-network use. Put it behind a reverse proxy with auth before exposing it publicly.
+
+See [`web/README.md`](web/README.md) for details.
 
 ## Nix / NixOS
 
@@ -218,6 +246,6 @@ nix run . -- facture.pdf "CONFIDENTIEL"
 
 ## License
 
-GPL v3 — see [LICENSE](LICENSE).
+GPL v3 - see [LICENSE](LICENSE).
 
 Any modification, or any project integrating filigranez, must remain open source under the same license.

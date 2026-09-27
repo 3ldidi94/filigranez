@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# filigranez — PDF watermarking tool
+# filigranez - PDF watermarking tool
 # Copyright (C) 2026 @3lDiDi
 #
 # This program is free software: you can redistribute it and/or modify
@@ -41,7 +41,7 @@ try:
     colorama.init(autoreset=True)
     HAS_COLORAMA = True
 except ImportError:
-    HAS_COLORAMA = False  # optional — ANSI works natively on Linux/Mac
+    HAS_COLORAMA = False  # optional - ANSI works natively on Linux/Mac
 
 try:
     from tqdm import tqdm
@@ -172,19 +172,19 @@ GOUV_COLOR        = "#8D8D8D"       # the light grey of the four-ink palette
 # Each ink is fitted so that a row drawn with it composites onto white at the
 # value measured on the reference's rows: dark 110, light grey 169, navy
 # (123,122,141), red (205,138,140). Fitted through a JPEG round-trip, because
-# chroma subsampling washes colour out — a red picked on the raw layer comes
+# chroma subsampling washes colour out - a red picked on the raw layer comes
 # out about half as saturated once encoded.
 GOUV_ACCENT_RED   = (231, 77, 81)
 GOUV_ACCENT_NAVY  = (71, 71, 119)
 GOUV_INK_DARK     = (56, 56, 56)
 # Four inks, one per row, dealt so that every four consecutive rows carry each
-# of them exactly once in a random order. The reference's greys are bimodal —
-# its rows land near 100 or near 170, never in between — so the light and dark
+# of them exactly once in a random order. The reference's greys are bimodal -
+# its rows land near 100 or near 170, never in between - so the light and dark
 # greys are two inks rather than one ink at two opacities. None is the
 # requested --color, which is the light grey by default.
 GOUV_ROW_COLORS   = (None, GOUV_INK_DARK, GOUV_ACCENT_NAVY, GOUV_ACCENT_RED)
 # Geometry read off a blank-page sample at 148 dpi (page 1224px wide): rows
-# 263px apart, repetitions 478px long on a 504px pitch — so the gap between
+# 263px apart, repetitions 478px long on a 504px pitch - so the gap between
 # repetitions is one font size, and the font itself is page width / 45.
 GOUV_LINE_FACTOR  = 9.74            # vertical period as a multiple of font size
 # Each row rides a sine rather than running straight. Fitting the reference's
@@ -201,7 +201,7 @@ GOUV_ROW_ALPHA_MAX = 1.10
 # what applying the speckle to the ink *before* the blur produces.
 GOUV_GRAIN        = 0.16            # relative spread of the per-pixel ink alpha
 # The reference does not print crisp text: each repetition sits in a soft halo
-# that roughly doubles its visual weight. Not a JPEG artifact — re-encoding
+# that roughly doubles its visual weight. Not a JPEG artifact - re-encoding
 # clean text down to the reference's 148 dpi / 3.5% ratio gets nowhere near it.
 # Radius as a fraction of the font size, fitted so the halo covers the same
 # area relative to the ink as the reference does (6.1x).
@@ -267,16 +267,28 @@ def _fit_a4(page: Image.Image, dpi: int) -> Image.Image:
     return sheet
 
 
-def _grain(strip: Image.Image, amount: float) -> Image.Image:
+# Uniform bytes have this standard deviation; dividing the jitter by it keeps
+# the grain strength (std of the alpha multiplier) at exactly amount*255,
+# independent of the noise distribution.
+_UNIFORM_SD = 256 / (12 ** 0.5)
+
+
+def _grain(strip: Image.Image, amount: float, rng: random.Random) -> Image.Image:
     """Speckle the ink by jittering its alpha per pixel. Multiplying rather
     than adding keeps the transparent background untouched, so only drawn
     pixels break up. The mean is pulled down by `amount`, which the calibrated
-    row opacities already account for."""
-    noise = Image.effect_noise(strip.size, 48)      # gaussian, mean 128, sd 48
-    scale = amount * 255 / 48
+    row opacities already account for.
+
+    The noise comes from the text-seeded rng, not Image.effect_noise: the
+    latter draws from a process-global C RNG that resets each process (fine for
+    the one-shot CLI) but advances across calls in a long-lived server, which
+    would make the grain - and so the output - depend on request history."""
+    w, h = strip.size
+    noise = Image.frombytes("L", (w, h), rng.randbytes(w * h))
+    scale = amount * 255 / _UNIFORM_SD
     base = 255 * (1 - amount)
     mult = noise.point(
-        lambda v: max(0, min(255, int(base + (v - 128) * scale))))
+        lambda v: max(0, min(255, int(base + (v - 127.5) * scale))))
     strip.putalpha(ImageChops.multiply(strip.getchannel("A"), mult))
     return strip
 
@@ -309,7 +321,7 @@ def _wave_strip(strip: Image.Image, amp: float, period: float, phase: float,
 def _composite_at(canvas: Image.Image, tile: Image.Image, x: int, y: int) -> None:
     """Alpha-composite a tile at (x, y), clipping whatever falls outside.
     Image.alpha_composite rejects negative destinations, so edge tiles are
-    cropped rather than skipped — otherwise the margins would stay bare."""
+    cropped rather than skipped - otherwise the margins would stay bare."""
     sx, sy = max(0, -x), max(0, -y)
     dx, dy = max(0, x), max(0, y)
     w = min(tile.width - sx, canvas.width - dx)
@@ -335,7 +347,7 @@ def make_watermark_layer(
 
     # Canvas just large enough to cover the page after any rotation: the
     # diagonal is the minimum size, plus a small margin so tiling reaches the
-    # corners. Avoids the previous ×2 blow-up (4× memory, PIL bomb errors).
+    # corners. Avoids the previous x2 blow-up (4x memory, PIL bomb errors).
     diag = int(math.sqrt(width ** 2 + height ** 2)) + 2 * font_size
     canvas = Image.new("RGBA", (diag, diag), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
@@ -403,7 +415,7 @@ def make_watermark_layer(
                 sdraw.text((base_x - x_start + gpad, gpad + apad),
                            text, font=font, fill=row_fill)
             if GOUV_GRAIN:
-                strip = _grain(strip, GOUV_GRAIN)
+                strip = _grain(strip, GOUV_GRAIN, rng)
             if glow:
                 strip = Image.alpha_composite(
                     strip.filter(ImageFilter.GaussianBlur(glow)), strip)
@@ -545,9 +557,41 @@ def collect_pdfs(directory: Path) -> list:
     return pdfs
 
 
+def resolve_params(text, opacity, rotation, color, dpi, font_size, quality,
+                   gouv):
+    """Apply per-style defaults, then validate. Returns
+    (style, opacity, rotation, color, rgb) or raises ValueError with the same
+    message the CLI prints. Single source of truth shared by the CLI and the
+    web front-end so the two never drift apart."""
+    style = "gouv" if gouv else "classic"
+    if opacity is None:
+        opacity = GOUV_OPACITY if gouv else CLASSIC_OPACITY
+    if rotation is None:
+        rotation = GOUV_ROTATION if gouv else CLASSIC_ROTATION
+    if color is None:
+        color = GOUV_COLOR if gouv else CLASSIC_COLOR
+
+    if not 0.0 <= opacity <= 1.0:
+        raise ValueError("--opacity must be between 0.0 and 1.0")
+    if dpi <= 0:
+        raise ValueError("--dpi must be a positive integer")
+    if font_size is not None and font_size <= 0:
+        raise ValueError("--font-size must be a positive integer")
+    if not text.strip():
+        raise ValueError("watermark text must not be empty")
+    if not 1 <= quality <= 95:
+        raise ValueError("--quality must be between 1 and 95")
+    try:
+        rgb = ImageColor.getrgb(color)[:3]
+    except ValueError:
+        raise ValueError(
+            f"invalid --color '{color}' (use #RRGGBB or a color name)")
+    return style, opacity, rotation, color, rgb
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Watermark PDF files — watermark baked into pixels, non-removable.",
+        description="Watermark PDF files - watermark baked into pixels, non-removable.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -566,7 +610,7 @@ Examples:
                              "tiling at 25° with a few pale-red repetitions "
                              "(--opacity/--rotation/--color/--font-size still override)")
     parser.add_argument("--opacity",      "-o", type=float, default=None,
-                        metavar="FLOAT",  help=f"Opacity 0.0–1.0 (default: {CLASSIC_OPACITY}, "
+                        metavar="FLOAT",  help=f"Opacity 0.0-1.0 (default: {CLASSIC_OPACITY}, "
                                                f"gouv: {GOUV_OPACITY})")
     parser.add_argument("--rotation",     "-r", type=float, default=None,
                         metavar="DEG",    help=f"Rotation in degrees (default: {CLASSIC_ROTATION:g}, "
@@ -583,7 +627,7 @@ Examples:
                              "'a4' normalises every page to A4 (scaled to fit, "
                              "centred, never stretched or cropped) (default: keep)")
     parser.add_argument("--quality",      "-q", type=int,   default=95,
-                        metavar="INT",    help="JPEG quality 1–95 (default: 95)")
+                        metavar="INT",    help="JPEG quality 1-95 (default: 95)")
     parser.add_argument("--suffix-name",  "-s", type=str,   default="watermark",
                         metavar="SUFFIX", help="Suffix appended to filename (default: watermark)")
     parser.add_argument("--poppler-path", "-p", type=str,   default=None,
@@ -591,34 +635,14 @@ Examples:
 
     args = parser.parse_args()
 
-    # Per-style defaults; explicit flags always win, in either style.
-    style = "gouv" if args.gouv else "classic"
-    if args.opacity is None:
-        args.opacity = GOUV_OPACITY if args.gouv else CLASSIC_OPACITY
-    if args.rotation is None:
-        args.rotation = GOUV_ROTATION if args.gouv else CLASSIC_ROTATION
-    if args.color is None:
-        args.color = GOUV_COLOR if args.gouv else CLASSIC_COLOR
-
-    if not 0.0 <= args.opacity <= 1.0:
-        error("--opacity must be between 0.0 and 1.0")
-        sys.exit(1)
-    if args.dpi <= 0:
-        error("--dpi must be a positive integer")
-        sys.exit(1)
-    if args.font_size is not None and args.font_size <= 0:
-        error("--font-size must be a positive integer")
-        sys.exit(1)
-    if not args.text.strip():
-        error("watermark text must not be empty")
-        sys.exit(1)
-    if not 1 <= args.quality <= 95:
-        error("--quality must be between 1 and 95")
-        sys.exit(1)
+    # Per-style defaults and validation live in resolve_params(), shared with
+    # the web front-end; explicit flags always win, in either style.
     try:
-        color = ImageColor.getrgb(args.color)[:3]
-    except ValueError:
-        error(f"invalid --color '{args.color}' (use #RRGGBB or a color name)")
+        style, args.opacity, args.rotation, args.color, color = resolve_params(
+            args.text, args.opacity, args.rotation, args.color,
+            args.dpi, args.font_size, args.quality, args.gouv)
+    except ValueError as e:
+        error(str(e))
         sys.exit(1)
 
     input_path = Path(args.input)

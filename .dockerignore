@@ -1,0 +1,9 @@
+.git
+__pycache__/
+*.pyc
+*.pdf
+assets/
+example*.png
+output-example.png
+logo*.png
+web/README.md

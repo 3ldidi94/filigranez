@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en" data-theme="amoled">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>filigranez</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.svg') }}">
+<style>
+  :root{
+    --radius:12px; --accent:#0d9488; --accent-ink:#fff;
+    --bg:#000; --card:#0c0e10; --elev:#141719; --ink:#e9edf0; --muted:#8b949e;
+    --line:#20262b; --field:#0f1214; --err:#ff6b6b; --ok:#3fb950;
+  }
+  :root[data-theme="grey"]{
+    --bg:#15171b; --card:#1e2126; --elev:#22262c; --ink:#e6e8ea; --muted:#9aa0a6;
+    --line:#31353b; --field:#22262c; --accent:#4a86d8;
+  }
+  :root[data-theme="white"]{
+    --bg:#f4f5f7; --card:#fff; --elev:#fafbfc; --ink:#1f2328; --muted:#6a7078;
+    --line:#e3e5e8; --field:#fff; --accent:#0d9488;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--ink);
+       font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  a{color:var(--accent)}
+  .wrap{max-width:1060px;margin:0 auto;padding:20px 16px 64px}
+  header{display:flex;align-items:center;gap:14px;margin-bottom:22px;flex-wrap:wrap}
+  header img{height:44px;width:auto}
+  header .sp{flex:1}
+  header .ctl{display:flex;align-items:center;gap:8px}
+  select.mini{background:var(--field);color:var(--ink);border:1px solid var(--line);
+    border-radius:8px;padding:6px 8px;font-size:13px}
+  .gh{display:inline-flex;align-items:center;justify-content:center;width:34px;
+    height:34px;border:1px solid var(--line);border-radius:8px;color:var(--ink);
+    text-decoration:none}
+  .gh:hover{background:var(--elev)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+  @media (max-width:820px){.cols{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:20px}
+  h2{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);
+    margin:0 0 14px}
+  label{display:block;font-weight:600;font-size:13px;margin:0 0 6px}
+  .hint{font-weight:400;color:var(--muted)}
+  input[type=text],input[type=number],select{width:100%;padding:9px 10px;
+    border:1px solid var(--line);border-radius:8px;background:var(--field);
+    color:var(--ink);font-size:14px}
+  .field{margin:0 0 16px}
+  .row{display:flex;gap:14px}.row>div{flex:1}
+  .drop{border:1.6px dashed var(--line);border-radius:10px;padding:22px;
+    text-align:center;background:var(--field);cursor:pointer;transition:.15s}
+  .drop:hover,.drop.over{border-color:var(--accent);background:var(--elev)}
+  .drop .big{font-weight:600;margin-bottom:2px}
+  .files{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+  .files li{display:flex;align-items:center;gap:10px;background:var(--elev);
+    border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px}
+  .files .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .files .sz{color:var(--muted);font-variant-numeric:tabular-nums;font-size:12px}
+  .files .rm{border:0;background:transparent;color:var(--muted);cursor:pointer;
+    font-size:18px;line-height:1;padding:0 4px}
+  .files .rm:hover{color:var(--err)}
+  .rangebox{display:flex;align-items:center;gap:10px}
+  input[type=range]{flex:1;accent-color:var(--accent)}
+  .val{font-variant-numeric:tabular-nums;color:var(--muted);min-width:38px;text-align:right}
+  input[type=color]{width:44px;height:36px;padding:0;border:1px solid var(--line);
+    border-radius:8px;background:var(--field)}
+  .colorrow{display:flex;align-items:center;gap:10px}.colorrow code{color:var(--muted)}
+  .toggle{display:flex;align-items:flex-start;gap:10px;background:var(--field);
+    border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 18px}
+  .toggle input{margin-top:3px}.toggle .t{font-weight:600}
+  .toggle .d{color:var(--muted);font-size:13px}
+  details{margin:2px 0 18px}summary{cursor:pointer;font-weight:600;font-size:13px}
+  details>div{padding-top:16px}
+  button.go{width:100%;padding:12px;border:0;border-radius:9px;background:var(--accent);
+    color:var(--accent-ink);font-size:15px;font-weight:700;cursor:pointer}
+  button.go:disabled{opacity:.6;cursor:default}
+  .msg{margin:14px 0 0;padding:10px 12px;border-radius:9px;font-size:14px;display:none}
+  .msg.err{display:block;background:color-mix(in srgb,var(--err) 14%,transparent);
+    border:1px solid var(--err);color:var(--err)}
+  .msg.ok{display:block;background:color-mix(in srgb,var(--ok) 14%,transparent);
+    border:1px solid var(--ok);color:var(--ok)}
+  .privacy{color:var(--muted);font-size:12.5px;margin:14px 0 0;display:flex;gap:8px}
+  .privacy svg{flex:none;margin-top:1px}
+  .preview-card canvas{width:100%;height:auto;border:1px solid var(--line);
+    border-radius:8px;background:#fff;display:block}
+  .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:22px}
+  .foot code{background:var(--field);padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="{{ url_for('static', filename='logo.svg') }}" alt="filigranez">
+    <div class="sp"></div>
+    <div class="ctl">
+      <select id="lang" class="mini" title="Language">
+        <option value="en">EN</option><option value="fr">FR</option>
+      </select>
+      <select id="theme" class="mini" title="Theme">
+        <option value="amoled" data-i18n="th_amoled">AMOLED black</option>
+        <option value="grey"   data-i18n="th_grey">Grey</option>
+        <option value="white"  data-i18n="th_white">White</option>
+      </select>
+      <a class="gh" id="gh" href="https://github.com/3ldidi94/filigranez"
+         target="_blank" rel="noopener" title="GitHub">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="cols">
+    <!-- ============ FORM ============ -->
+    <form class="card" id="form" method="post"
+          action="{{ url_for('watermark') }}" enctype="multipart/form-data">
+      <h2 data-i18n="h_settings">Settings</h2>
+
+      <div class="field">
+        <label data-i18n="l_files">Documents (PDF)</label>
+        <div class="drop" id="drop">
+          <div class="big" data-i18n="drop_big">Drop PDF files here</div>
+          <div class="hint" data-i18n="drop_small">or click to choose, several files allowed</div>
+        </div>
+        <input type="file" id="file" name="pdf" accept="application/pdf,.pdf" multiple hidden>
+        <ul class="files" id="filelist"></ul>
+      </div>
+
+      <div class="field">
+        <label for="text" data-i18n="l_text">Watermark text</label>
+        <input type="text" id="text" name="text" value="CONFIDENTIEL"
+               data-i18n-ph="ph_text" placeholder="CONFIDENTIEL" required>
+      </div>
+
+      <div class="toggle">
+        <input type="checkbox" id="gouv" name="gouv">
+        <div>
+          <div class="t" data-i18n="l_gouv">gouv style</div>
+          <div class="d" data-i18n="d_gouv">filigrane.beta.gouv.fr look: four inks, waves, grain.</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="opacity" data-i18n="l_opacity">Opacity <span class="val" id="opv"></span></label>
+          <div class="rangebox">
+            <input type="range" id="opacity" name="opacity" min="0" max="1" step="0.01"
+                   value="{{ classic.opacity }}">
+          </div>
+        </div>
+        <div class="field">
+          <label for="rotation" data-i18n="l_rotation">Rotation (°)</label>
+          <input type="number" id="rotation" name="rotation" step="1"
+                 value="{{ classic.rotation }}">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="color" data-i18n="l_color">Color</label>
+        <div class="colorrow">
+          <input type="color" id="color" name="color" value="{{ classic.color }}">
+          <code id="colhex">{{ classic.color }}</code>
+        </div>
+      </div>
+
+      <details id="adv">
+        <summary data-i18n="l_adv">Advanced options</summary>
+        <div>
+          <div class="row">
+            <div class="field">
+              <label for="dpi" data-i18n="l_dpi">DPI</label>
+              <input type="number" id="dpi" name="dpi" min="1" step="1" value="{{ d.dpi }}">
+            </div>
+            <div class="field">
+              <label for="quality" data-i18n="l_quality">JPEG quality <span class="hint">1-95</span></label>
+              <input type="number" id="quality" name="quality" min="1" max="95" step="1" value="{{ d.quality }}">
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label for="font_size" data-i18n="l_font">Font size <span class="hint" data-i18n="hint_font">px, empty = auto</span></label>
+              <input type="number" id="font_size" name="font_size" min="1" step="1"
+                     data-i18n-ph="ph_auto" placeholder="auto">
+            </div>
+            <div class="field">
+              <label for="page_size" data-i18n="l_page">Page size</label>
+              <select id="page_size" name="page_size">
+                <option value="keep" data-i18n="pg_keep">keep original</option>
+                <option value="a4" data-i18n="pg_a4">normalise to A4</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="suffix" data-i18n="l_suffix">Filename suffix</label>
+            <input type="text" id="suffix" name="suffix" value="{{ d.suffix }}">
+          </div>
+        </div>
+      </details>
+
+      <button type="submit" class="go" id="go" data-i18n="btn">Watermark</button>
+      <div class="msg" id="msg"></div>
+
+      <p class="privacy">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2"><path d="M12 2 4 5v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V5l-8-3Z"/></svg>
+        <span data-i18n="privacy">No file is kept on the server. Neither the original nor the
+          watermarked file is stored. Both are deleted right after your download.</span>
+      </p>
+    </form>
+
+    <!-- ============ PREVIEW ============ -->
+    <div class="card preview-card">
+      <h2 data-i18n="h_preview">Live preview</h2>
+      <canvas id="pv" width="620" height="877"></canvas>
+      <p class="hint" data-i18n="pv_note" style="margin:10px 0 0">
+        Approximate preview. The final PDF is rendered at full quality by the engine.</p>
+    </div>
+  </div>
+
+  <p class="foot" data-i18n-html="foot">Same engine as the CLI:
+    <code>filigranez.py doc.pdf "TEXT"</code></p>
+</div>
+
+<script>
+/* ---------------- i18n ---------------- */
+const I18N = {
+  en:{th_amoled:"AMOLED black",th_grey:"Grey",th_white:"White",h_settings:"Settings",
+    l_files:"Documents (PDF)",drop_big:"Drop PDF files here",
+    drop_small:"or click to choose, several files allowed",l_text:"Watermark text",
+    ph_text:"CONFIDENTIEL",l_gouv:"gouv style",
+    d_gouv:"filigrane.beta.gouv.fr look: four inks, waves, grain.",
+    l_opacity:"Opacity",l_rotation:"Rotation (°)",l_color:"Color",l_adv:"Advanced options",
+    l_dpi:"DPI",l_quality:"JPEG quality",l_font:"Font size",hint_font:"px, empty = auto",
+    ph_auto:"auto",l_page:"Page size",pg_keep:"keep original",pg_a4:"normalise to A4",
+    l_suffix:"Filename suffix",btn:"Watermark",h_preview:"Live preview",
+    pv_note:"Approximate preview. The final PDF is rendered at full quality by the engine.",
+    privacy:"No file is kept on the server. Neither the original nor the watermarked file is stored. Both are deleted right after your download.",
+    foot:'Same engine as the CLI: <code>filigranez.py doc.pdf "TEXT"</code>',
+    working:"Working...",done:"Done. Your download is starting.",
+    need_file:"Please add at least one PDF file.",err:"Error"},
+  fr:{th_amoled:"Noir AMOLED",th_grey:"Gris",th_white:"Blanc",h_settings:"Paramètres",
+    l_files:"Documents (PDF)",drop_big:"Déposez vos fichiers PDF ici",
+    drop_small:"ou cliquez pour choisir, plusieurs fichiers possibles",l_text:"Texte du filigrane",
+    ph_text:"CONFIDENTIEL",l_gouv:"style gouv",
+    d_gouv:"rendu filigrane.beta.gouv.fr : quatre encres, ondulation, grain.",
+    l_opacity:"Opacité",l_rotation:"Rotation (°)",l_color:"Couleur",l_adv:"Options avancées",
+    l_dpi:"DPI",l_quality:"Qualité JPEG",l_font:"Taille police",hint_font:"px, vide = auto",
+    ph_auto:"auto",l_page:"Format de page",pg_keep:"garder l'original",pg_a4:"normaliser en A4",
+    l_suffix:"Suffixe du fichier",btn:"Filigraner",h_preview:"Aperçu en direct",
+    pv_note:"Aperçu approximatif. Le PDF final est rendu en pleine qualité par le moteur.",
+    privacy:"Aucun fichier n'est conservé sur le serveur. Ni l'original, ni le fichier filigrané ne sont stockés. Les deux sont supprimés juste après votre téléchargement.",
+    foot:'Même moteur que la CLI : <code>filigranez.py doc.pdf "TEXTE"</code>',
+    working:"Traitement...",done:"Terminé. Votre téléchargement démarre.",
+    need_file:"Ajoutez au moins un fichier PDF.",err:"Erreur"}
+};
+const $ = s => document.querySelector(s);
+let lang = localStorage.getItem("fz_lang") || "en";
+function applyLang(){
+  const d = I18N[lang];
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach(e=>{
+    const k=e.getAttribute("data-i18n"); if(d[k]!=null) e.textContent=d[k];});
+  document.querySelectorAll("[data-i18n-ph]").forEach(e=>{
+    const k=e.getAttribute("data-i18n-ph"); if(d[k]!=null) e.placeholder=d[k];});
+  document.querySelectorAll("[data-i18n-html]").forEach(e=>{
+    const k=e.getAttribute("data-i18n-html"); if(d[k]!=null) e.innerHTML=d[k];});
+  $("#lang").value = lang;
+}
+$("#lang").addEventListener("change",e=>{lang=e.target.value;
+  localStorage.setItem("fz_lang",lang);applyLang();});
+
+/* ---------------- theme ---------------- */
+let theme = localStorage.getItem("fz_theme") || "amoled";
+function applyTheme(){document.documentElement.setAttribute("data-theme",theme);
+  $("#theme").value=theme;}
+$("#theme").addEventListener("change",e=>{theme=e.target.value;
+  localStorage.setItem("fz_theme",theme);applyTheme();});
+
+/* ---------------- style presets ---------------- */
+const CLASSIC={opacity:"{{ classic.opacity }}",rotation:"{{ classic.rotation }}",color:"{{ classic.color }}"};
+const GOUV   ={opacity:"{{ gouv.opacity }}",   rotation:"{{ gouv.rotation }}",   color:"{{ gouv.color }}"};
+const opacity=$("#opacity"),rotation=$("#rotation"),color=$("#color"),
+      colhex=$("#colhex"),opv=$("#opv"),gouv=$("#gouv"),text=$("#text"),fontEl=$("#font_size");
+function showOp(){opv.textContent=Number(opacity.value).toFixed(2);}
+function showCol(){colhex.textContent=color.value.toUpperCase();}
+gouv.addEventListener("change",()=>{const p=gouv.checked?GOUV:CLASSIC;
+  opacity.value=p.opacity;rotation.value=p.rotation;color.value=p.color;
+  showOp();showCol();draw();});
+
+/* ---------------- file management ---------------- */
+const fileInput=$("#file"),drop=$("#drop"),filelist=$("#filelist");
+let files=[];
+function fmtSize(b){return b<1024?b+" B":b<1048576?(b/1024).toFixed(0)+" KB":(b/1048576).toFixed(1)+" MB";}
+function syncInput(){const dt=new DataTransfer();files.forEach(f=>dt.items.add(f));
+  fileInput.files=dt.files;}
+function render(){
+  filelist.innerHTML="";
+  files.forEach((f,i)=>{
+    const li=document.createElement("li");
+    const nm=document.createElement("span");nm.className="nm";nm.textContent=f.name;
+    const sz=document.createElement("span");sz.className="sz";sz.textContent=fmtSize(f.size);
+    const rm=document.createElement("button");rm.type="button";rm.className="rm";
+    rm.textContent="×";rm.title="remove";
+    rm.onclick=()=>{files.splice(i,1);syncInput();render();};
+    li.append(nm,sz,rm);filelist.appendChild(li);
+  });
+}
+function addFiles(list){
+  for(const f of list){
+    if(!/\.pdf$/i.test(f.name)) continue;
+    if(!files.some(x=>x.name===f.name&&x.size===f.size)) files.push(f);
+  }
+  syncInput();render();
+}
+drop.addEventListener("click",()=>fileInput.click());
+fileInput.addEventListener("change",()=>addFiles(fileInput.files));
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{
+  e.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{
+  e.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop",e=>{if(e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files);});
+
+/* ---------------- live preview ---------------- */
+const pv=$("#pv"),ctx=pv.getContext("2d");
+const NAVY="#47478f",RED="#c8464a",BLACK="#111111",GREY="#8d8d8d";
+function draw(){
+  const W=pv.width,H=pv.height;
+  ctx.clearRect(0,0,W,H);
+  // paper
+  ctx.fillStyle="#ffffff";ctx.fillRect(0,0,W,H);
+  // mock document content
+  ctx.save();
+  ctx.fillStyle="#e6e8ec";
+  ctx.fillRect(40,40,120,30);                     // header block
+  ctx.fillStyle="#eef0f3";
+  const lines=[[40,110,540],[40,140,540],[40,170,380],
+    [40,230,540],[40,260,540],[40,290,460],
+    [40,350,540],[40,380,300]];
+  lines.forEach(([x,y,w])=>{ctx.fillRect(x,y,w,12);});
+  ctx.fillStyle="#f0f2f5";
+  for(let i=0;i<6;i++) ctx.fillRect(40,470+i*26,540,12);
+  ctx.restore();
+
+  const txt=(text.value||"WATERMARK");
+  if(gouv.checked) drawGouv(W,H,txt); else drawClassic(W,H,txt);
+}
+function drawClassic(W,H,txt){
+  const op=Number(opacity.value);
+  const rot=Number(rotation.value)*Math.PI/180;
+  const fs=fontEl.value?Math.max(6,Number(fontEl.value)/3):Math.max(14,W/22);
+  ctx.save();ctx.globalAlpha=op;ctx.fillStyle=color.value;
+  ctx.font=`bold ${fs}px system-ui,sans-serif`;ctx.textBaseline="middle";
+  const tw=ctx.measureText(txt).width;
+  const stepX=tw+Math.max(30,fs*1.2), stepY=Math.max(48,fs*2.6);
+  ctx.translate(W/2,H/2);ctx.rotate(rot);ctx.translate(-W/2,-H/2);
+  for(let y=-H;y<2*H;y+=stepY)
+    for(let x=-W;x<2*W;x+=stepX){
+      ctx.fillText(txt,x,y);
+    }
+  ctx.restore();
+}
+function drawGouv(W,H,txt){
+  const op=Number(opacity.value);
+  const rot=Number(rotation.value)*Math.PI/180;
+  const fs=fontEl.value?Math.max(6,Number(fontEl.value)/3):Math.max(12,W/30);
+  const inks=[BLACK,GREY,NAVY,RED];
+  ctx.save();ctx.globalAlpha=op;
+  ctx.font=`bold ${fs}px system-ui,sans-serif`;ctx.textBaseline="middle";
+  const tw=ctx.measureText(txt).width;
+  const stepX=tw+fs, stepY=Math.max(40,fs*2.4);
+  ctx.translate(W/2,H/2);ctx.rotate(rot);ctx.translate(-W/2,-H/2);
+  let row=0;
+  for(let y=-H;y<2*H;y+=stepY){
+    ctx.fillStyle=inks[((row%4)+4)%4];
+    const amp=fs*0.35, off=(row%2)?stepX/2:0;
+    for(let x=-W;x<2*W;x+=stepX){
+      const dy=Math.sin((x)/tw*Math.PI*2)*amp;   // continuous wave
+      ctx.fillText(txt,x+off,y+dy);
+    }
+    row++;
+  }
+  ctx.restore();
+}
+[opacity,rotation,color,text,fontEl].forEach(el=>{
+  el.addEventListener("input",()=>{showOp();showCol();draw();});
+});
+
+/* ---------------- submit via fetch ---------------- */
+const form=$("#form"),go=$("#go"),msg=$("#msg");
+function setMsg(kind,txt){msg.className="msg "+(kind||"");msg.textContent=txt||"";}
+function filenameFrom(res,fallback){
+  const cd=res.headers.get("Content-Disposition")||"";
+  const m=cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+  return m?decodeURIComponent(m[1]):fallback;
+}
+form.addEventListener("submit",async e=>{
+  e.preventDefault();
+  if(files.length===0){setMsg("err",I18N[lang].need_file);return;}
+  setMsg("","");go.disabled=true;const label=go.textContent;go.textContent=I18N[lang].working;
+  try{
+    const fd=new FormData(form);        // includes files (input synced) + fields
+    const res=await fetch(form.action,{method:"POST",body:fd});
+    if(!res.ok){
+      let m=I18N[lang].err;
+      try{const j=await res.json();if(j.error)m=j.error;}catch(_){}
+      setMsg("err",m);return;
+    }
+    const blob=await res.blob();
+    const fallback=files.length>1?"filigranez.zip":"watermarked.pdf";
+    const name=filenameFrom(res,fallback);
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=name;
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+    setMsg("ok",I18N[lang].done);
+  }catch(err){setMsg("err",String(err));}
+  finally{go.disabled=false;go.textContent=label;}
+});
+
+/* ---------------- init ---------------- */
+applyTheme();applyLang();showOp();showCol();draw();
+</script>
+</body>
+</html>

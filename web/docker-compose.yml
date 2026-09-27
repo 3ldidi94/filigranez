@@ -1,0 +1,17 @@
+services:
+  filigranez-web:
+    build:
+      context: ..            # repo root, so filigranez.py is in scope
+      dockerfile: web/Dockerfile
+    image: filigranez-web
+    container_name: filigranez-web
+    ports:
+      - "8010:8010"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8010/health').getcode()==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
