@@ -207,7 +207,7 @@ A small web front-end lives in [`web/`](web/), on top of the exact same engine -
 
 - **Drag & drop of several PDFs at once** - one file downloads as a PDF, several as a ZIP.
 - Every CLI option, pre-filled with the defaults but editable, plus a **gouv style** toggle.
-- **EN/FR** and **three themes** (AMOLED black by default, grey, white).
+- **EN/FR** and **three themes** (Black (OLED) by default, grey, white).
 - A **live preview** that adapts to the chosen options.
 - Nothing is stored server-side - original and output are deleted as soon as the download starts.
 

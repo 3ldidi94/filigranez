@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="amoled">
+<html lang="fr" data-theme="oled">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -87,6 +87,23 @@
   .prog .fill{height:100%;width:0;background:var(--accent);transition:width .2s}
   .prog .ptext{margin-top:6px;font-size:13px;color:var(--muted);
     font-variant-numeric:tabular-nums}
+  .listinfo{display:flex;justify-content:space-between;align-items:center;
+    margin-top:8px;font-size:12px;color:var(--muted);gap:10px}
+  .linkbtn{border:0;background:transparent;color:var(--accent);cursor:pointer;
+    font-size:12px;padding:0}
+  .files .st{font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .files .st.proc{color:var(--accent)}
+  .files .st.done{color:var(--ok)}
+  .files .st.failed{color:var(--err)}
+  .files .st.queued{color:var(--muted)}
+  .files .sz.over{color:var(--err)}
+  .files li{cursor:pointer}
+  .files li.active{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+  button.cancel{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;
+    background:transparent;color:var(--ink);font-size:15px;font-weight:600;cursor:pointer;
+    margin-top:8px}
+  .msg.info{display:block;background:var(--elev);border:1px solid var(--line);color:var(--muted)}
+  .drop:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .privacy{color:var(--muted);font-size:12.5px;margin:14px 0 0;display:flex;gap:8px}
   .privacy svg{flex:none;margin-top:1px}
   .preview-card canvas{width:100%;height:auto;border:1px solid var(--line);
@@ -105,7 +122,7 @@
         <option value="en">EN</option><option value="fr">FR</option>
       </select>
       <select id="theme" class="mini" title="Theme">
-        <option value="amoled" data-i18n="th_amoled">AMOLED black</option>
+        <option value="oled" data-i18n="th_oled">Black (OLED)</option>
         <option value="grey"   data-i18n="th_grey">Grey</option>
         <option value="white"  data-i18n="th_white">White</option>
       </select>
@@ -132,6 +149,8 @@
         </div>
         <input type="file" id="file" name="pdf" accept="application/pdf,.pdf" multiple hidden>
         <ul class="files" id="filelist"></ul>
+        <div class="listinfo"><span id="summary"></span>
+          <button type="button" id="clearall" class="linkbtn" data-i18n="clear" hidden>Clear all</button></div>
       </div>
 
       <div class="field">
@@ -206,9 +225,10 @@
       </details>
 
       <button type="submit" class="go" id="go" data-i18n="btn">Watermark</button>
+      <button type="button" class="cancel" id="cancel" data-i18n="cancel" hidden>Cancel</button>
       <div class="prog" id="prog"><div class="bar"><div class="fill" id="pfill"></div></div>
-        <div class="ptext" id="ptext"></div></div>
-      <div class="msg" id="msg"></div>
+        <div class="ptext" id="ptext" aria-live="polite"></div></div>
+      <div class="msg" id="msg" aria-live="polite"></div>
 
       <p class="privacy">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -231,10 +251,11 @@
     <code>filigranez.py doc.pdf "TEXT"</code></p>
 </div>
 
+<script src="{{ url_for('static', filename='vendor/pdf.min.js') }}"></script>
 <script>
 /* ---------------- i18n ---------------- */
 const I18N = {
-  en:{th_amoled:"AMOLED black",th_grey:"Grey",th_white:"White",h_settings:"Settings",
+  en:{th_oled:"Black (OLED)",th_grey:"Grey",th_white:"White",h_settings:"Settings",
     l_files:"Documents (PDF)",drop_big:"Drop PDF files here",
     drop_small:"or click to choose, several files allowed",l_text:"Watermark text",
     ph_text:"CONFIDENTIEL",l_gouv:"gouv style",
@@ -250,8 +271,11 @@ const I18N = {
     need_file:"Please add at least one PDF file.",err:"Error",
     proc:"Processing",of:"of",eta_prefix:"about",eta_suffix:"left",
     estimating:"estimating time...",zipping:"Preparing the ZIP...",
-    failed_prefix:"could not be processed:",done_zip:"Done. Your ZIP download is starting."},
-  fr:{th_amoled:"Noir AMOLED",th_grey:"Gris",th_white:"Blanc",h_settings:"Paramètres",
+    failed_prefix:"could not be processed:",done_zip:"Done. Your ZIP download is starting.",
+    cancel:"Cancel",cancelled:"Cancelled",clear:"Clear all",st_queued:"queued",
+    st_proc:"processing",st_done:"done",st_failed:"failed",files_word:"files",
+    total_word:"total"},
+  fr:{th_oled:"Noir (OLED)",th_grey:"Gris",th_white:"Blanc",h_settings:"Paramètres",
     l_files:"Documents (PDF)",drop_big:"Déposez vos fichiers PDF ici",
     drop_small:"ou cliquez pour choisir, plusieurs fichiers possibles",l_text:"Texte du filigrane",
     ph_text:"CONFIDENTIEL",l_gouv:"style gouv",
@@ -267,10 +291,13 @@ const I18N = {
     need_file:"Ajoutez au moins un fichier PDF.",err:"Erreur",
     proc:"Traitement",of:"sur",eta_prefix:"environ",eta_suffix:"restant",
     estimating:"estimation du temps...",zipping:"Préparation du ZIP...",
-    failed_prefix:"n'a pas pu être traité :",done_zip:"Terminé. Le téléchargement du ZIP démarre."}
+    failed_prefix:"n'a pas pu être traité :",done_zip:"Terminé. Le téléchargement du ZIP démarre.",
+    cancel:"Annuler",cancelled:"Annulé",clear:"Tout effacer",st_queued:"en attente",
+    st_proc:"en cours",st_done:"OK",st_failed:"échec",files_word:"fichiers",
+    total_word:"au total"}
 };
 const $ = s => document.querySelector(s);
-let lang = localStorage.getItem("fz_lang") || "en";
+let lang = localStorage.getItem("fz_lang") || "fr";
 function applyLang(){
   const d = I18N[lang];
   document.documentElement.lang = lang;
@@ -283,10 +310,11 @@ function applyLang(){
   $("#lang").value = lang;
 }
 $("#lang").addEventListener("change",e=>{lang=e.target.value;
-  localStorage.setItem("fz_lang",lang);applyLang();});
+  localStorage.setItem("fz_lang",lang);applyLang();render();});
 
 /* ---------------- theme ---------------- */
-let theme = localStorage.getItem("fz_theme") || "amoled";
+let theme = localStorage.getItem("fz_theme") || "oled";
+if(theme==="amoled"){theme="oled";localStorage.setItem("fz_theme",theme);}
 function applyTheme(){document.documentElement.setAttribute("data-theme",theme);
   $("#theme").value=theme;}
 $("#theme").addEventListener("change",e=>{theme=e.target.value;
@@ -304,30 +332,52 @@ gouv.addEventListener("change",()=>{const p=gouv.checked?GOUV:CLASSIC;
   showOp();showCol();draw();});
 
 /* ---------------- file management ---------------- */
-const fileInput=$("#file"),drop=$("#drop"),filelist=$("#filelist");
-let files=[];
+const fileInput=$("#file"),drop=$("#drop"),filelist=$("#filelist"),
+      summary=$("#summary"),clearAllBtn=$("#clearall");
+const MAX_BYTES=100*1024*1024;
+let files=[],statusKey=[],badgeEls=[],busy=false;
 function fmtSize(b){return b<1024?b+" B":b<1048576?(b/1024).toFixed(0)+" KB":(b/1048576).toFixed(1)+" MB";}
 function syncInput(){const dt=new DataTransfer();files.forEach(f=>dt.items.add(f));
   fileInput.files=dt.files;}
+function applyBadge(i){const el=badgeEls[i];if(!el)return;const k=statusKey[i]||"";
+  el.className="st "+k;el.textContent=k?(I18N[lang]["st_"+k]||""):"";}
+function setStatus(i,k){statusKey[i]=k;applyBadge(i);}
 function render(){
-  filelist.innerHTML="";
+  filelist.innerHTML="";badgeEls=[];let total=0;
   files.forEach((f,i)=>{
+    total+=f.size;
     const li=document.createElement("li");
     const nm=document.createElement("span");nm.className="nm";nm.textContent=f.name;
-    const sz=document.createElement("span");sz.className="sz";sz.textContent=fmtSize(f.size);
+    const st=document.createElement("span");st.className="st";
+    const sz=document.createElement("span");sz.className="sz"+(f.size>MAX_BYTES?" over":"");
+    sz.textContent=fmtSize(f.size);
     const rm=document.createElement("button");rm.type="button";rm.className="rm";
-    rm.textContent="×";rm.title="remove";
-    rm.onclick=()=>{files.splice(i,1);syncInput();render();};
-    li.append(nm,sz,rm);filelist.appendChild(li);
+    rm.textContent="×";rm.setAttribute("aria-label","remove");
+    rm.onclick=(e)=>{e.stopPropagation();if(busy)return;
+      files.splice(i,1);statusKey.splice(i,1);
+      if(previewIdx>=files.length) previewIdx=files.length-1;
+      syncInput();render();selectPreview(previewIdx);};
+    if(i===previewIdx) li.classList.add("active");
+    li.onclick=()=>selectPreview(i);
+    li.append(nm,st,sz,rm);filelist.appendChild(li);
+    badgeEls[i]=st;applyBadge(i);
   });
+  summary.textContent=files.length?
+    (files.length+" "+I18N[lang].files_word+", "+fmtSize(total)+" "+I18N[lang].total_word):"";
+  clearAllBtn.hidden=files.length<2;
 }
 function addFiles(list){
   for(const f of list){
     if(!/\.pdf$/i.test(f.name)) continue;
-    if(!files.some(x=>x.name===f.name&&x.size===f.size)) files.push(f);
+    if(!files.some(x=>x.name===f.name&&x.size===f.size)){files.push(f);statusKey.push("");}
   }
   syncInput();render();
+  if(files.length){if(previewIdx<0||previewIdx>=files.length)previewIdx=0;selectPreview(previewIdx);}
+  else{currentPage=null;draw();}
 }
+clearAllBtn.onclick=()=>{if(busy)return;files=[];statusKey=[];previewIdx=0;currentPage=null;syncInput();render();draw();};
+drop.setAttribute("role","button");drop.setAttribute("tabindex","0");
+drop.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();fileInput.click();}});
 drop.addEventListener("click",()=>fileInput.click());
 fileInput.addEventListener("change",()=>addFiles(fileInput.files));
 ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{
@@ -336,27 +386,61 @@ fileInput.addEventListener("change",()=>addFiles(fileInput.files));
   e.preventDefault();drop.classList.remove("over");}));
 drop.addEventListener("drop",e=>{if(e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files);});
 
-/* ---------------- live preview ---------------- */
+/* ---------------- live preview (real page via pdf.js) ---------------- */
 const pv=$("#pv"),ctx=pv.getContext("2d");
 const NAVY="#47478f",RED="#c8464a",BLACK="#111111",GREY="#8d8d8d";
-function draw(){
-  const W=pv.width,H=pv.height;
-  ctx.clearRect(0,0,W,H);
-  // paper
-  ctx.fillStyle="#ffffff";ctx.fillRect(0,0,W,H);
-  // mock document content
-  ctx.save();
-  ctx.fillStyle="#e6e8ec";
-  ctx.fillRect(40,40,120,30);                     // header block
+if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc=
+  "{{ url_for('static', filename='vendor/pdf.worker.min.js') }}";
+let previewIdx=0,currentPage=null;
+const pageCache=new Map();
+function pkey(f){return f.name+"|"+f.size;}
+async function loadPage(f){
+  if(!window.pdfjsLib||!f) return null;
+  const k=pkey(f);
+  if(pageCache.has(k)) return pageCache.get(k);
+  try{
+    const buf=await f.arrayBuffer();
+    const doc=await pdfjsLib.getDocument({data:buf}).promise;
+    const page=await doc.getPage(1);
+    const BW=620,vp1=page.getViewport({scale:1}),scale=BW/vp1.width;
+    const vp=page.getViewport({scale});
+    const oc=document.createElement("canvas");
+    oc.width=Math.round(vp.width);oc.height=Math.round(vp.height);
+    await page.render({canvasContext:oc.getContext("2d"),viewport:vp}).promise;
+    if(doc.destroy) doc.destroy();
+    const res={canvas:oc,w:oc.width,h:oc.height};
+    pageCache.set(k,res);return res;
+  }catch(_){return null;}
+}
+function markActive(){
+  const kids=filelist.children;
+  for(let i=0;i<kids.length;i++) kids[i].classList.toggle("active",i===previewIdx);
+}
+async function selectPreview(i){
+  previewIdx=i;markActive();
+  const f=files[i];
+  currentPage=f?await loadPage(f):null;
+  draw();
+}
+function drawMock(W,H){
+  ctx.save();ctx.fillStyle="#e6e8ec";ctx.fillRect(40,40,120,30);
   ctx.fillStyle="#eef0f3";
   const lines=[[40,110,540],[40,140,540],[40,170,380],
-    [40,230,540],[40,260,540],[40,290,460],
-    [40,350,540],[40,380,300]];
+    [40,230,540],[40,260,540],[40,290,460],[40,350,540],[40,380,300]];
   lines.forEach(([x,y,w])=>{ctx.fillRect(x,y,w,12);});
   ctx.fillStyle="#f0f2f5";
   for(let i=0;i<6;i++) ctx.fillRect(40,470+i*26,540,12);
   ctx.restore();
-
+}
+function draw(){
+  let W,H;
+  if(currentPage){W=currentPage.w;H=currentPage.h;} else {W=620;H=877;}
+  if(pv.width!==W) pv.width=W;
+  if(pv.height!==H) pv.height=H;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle="#ffffff";ctx.fillRect(0,0,W,H);
+  if(currentPage) ctx.drawImage(currentPage.canvas,0,0,W,H);
+  else drawMock(W,H);
   const txt=(text.value||"WATERMARK");
   if(gouv.checked) drawGouv(W,H,txt); else drawClassic(W,H,txt);
 }
@@ -437,11 +521,37 @@ function zipStore(entries){
 }
 
 /* ---------------- submit: one request per file, progress + ETA ---------------- */
-const form=$("#form"),go=$("#go"),msg=$("#msg"),prog=$("#prog"),
+const form=$("#form"),go=$("#go"),cancelBtn=$("#cancel"),msg=$("#msg"),prog=$("#prog"),
       pfill=$("#pfill"),ptext=$("#ptext"),pageEl=$("#page_size"),
       suffixEl=$("#suffix"),dpiEl=$("#dpi"),qualEl=$("#quality");
+let currentXhr=null,cancelReq=false;
+const FR_ERR=[
+  [/^--opacity must be between .*/,"l'opacité doit être comprise entre 0.0 et 1.0"],
+  [/^--opacity must be a finite number$/,"l'opacité doit être un nombre fini"],
+  [/^--rotation must be a finite number$/,"la rotation doit être un nombre fini"],
+  [/^--dpi must be a positive integer$/,"le DPI doit être un entier positif"],
+  [/^--dpi must be (\d+) or less$/,"le DPI doit être au maximum $1"],
+  [/^--font-size must be a positive integer$/,"la taille de police doit être un entier positif"],
+  [/^--font-size must be (\d+) or less$/,"la taille de police doit être au maximum $1"],
+  [/^--quality must be between .*/,"la qualité JPEG doit être comprise entre 1 et 95"],
+  [/^watermark text must not be empty$/,"le texte du filigrane ne peut pas être vide"],
+  [/^invalid --color '(.*)' .*/,"couleur invalide : $1 (utilisez #RRGGBB ou un nom de couleur)"],
+  [/^invalid value for (.+)$/,"valeur invalide pour $1"],
+  [/^page size must be .*/,"le format de page doit être keep ou a4"],
+  [/^too many files \(max (\d+) per request\)$/,"trop de fichiers (maximum $1 par envoi)"],
+  [/^please choose at least one PDF file$/,"ajoutez au moins un fichier PDF"],
+  [/^not a PDF: (.+)$/,"ce n'est pas un PDF : $1"],
+  [/^the file must be a \.pdf$/,"le fichier doit être un .pdf"],
+  [/^cannot read PDF.*/,"PDF illisible ou corrompu"],
+  [/^upload too large.*/,"envoi trop volumineux (limite 100 Mo)"],
+  [/^could not process the document$/,"impossible de traiter le document"]
+];
+function tErr(m){if(lang!=="fr")return m;
+  for(const [re,fr] of FR_ERR){const x=m.match(re);
+    if(x)return fr.replace(/\$(\d)/g,(_,i)=>x[i]);}
+  return m;}
 function setMsg(kind,txt){msg.className="msg "+(kind||"");msg.textContent=txt||"";}
-function fmtTime(s){s=Math.max(0,Math.round(s));const m=Math.floor(s/60),r=s%60;
+function fmtTime(sec){sec=Math.max(0,Math.round(sec));const m=Math.floor(sec/60),r=sec%60;
   return m>0?(m+":"+String(r).padStart(2,"0")):(r+"s");}
 function cdName(xhr,fallback){
   const cd=xhr.getResponseHeader("Content-Disposition")||"";
@@ -458,7 +568,7 @@ function sendOne(file,onprog){
     if(fontEl.value) fd.append("font_size",fontEl.value);
     fd.append("page_size",pageEl.value);fd.append("suffix",suffixEl.value);
     fd.append("pdf",file,file.name);
-    const xhr=new XMLHttpRequest();
+    const xhr=new XMLHttpRequest();currentXhr=xhr;
     xhr.open("POST",form.action);xhr.responseType="blob";
     xhr.upload.onprogress=ev=>{if(ev.lengthComputable&&onprog)onprog(ev.loaded/ev.total);};
     xhr.onload=()=>{
@@ -471,7 +581,8 @@ function sendOne(file,onprog){
           .catch(()=>reject(new Error("HTTP "+xhr.status)));
       }
     };
-    xhr.onerror=()=>reject(new Error("network error"));
+    xhr.onerror=()=>reject(new Error(lang==="fr"?"erreur réseau":"network error"));
+    xhr.onabort=()=>reject(new Error("__cancel__"));
     xhr.send(fd);
   });
 }
@@ -481,31 +592,40 @@ function download(blob,name){
   document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),4000);
 }
+cancelBtn.addEventListener("click",()=>{cancelReq=true;if(currentXhr)currentXhr.abort();});
 form.addEventListener("submit",async e=>{
   e.preventDefault();
   if(files.length===0){setMsg("err",I18N[lang].need_file);return;}
   const d=I18N[lang],N=files.length;
-  setMsg("","");go.disabled=true;const label=go.textContent;go.textContent=d.working;
+  setMsg("","");busy=true;cancelReq=false;
+  go.hidden=true;cancelBtn.hidden=false;
   prog.classList.add("on");pfill.style.width="0%";
-  const start=Date.now(),results=[],failures=[];
-  function paint(done,frac){
-    const overall=Math.min(1,(done+frac)/N);
-    pfill.style.width=(overall*100).toFixed(1)+"%";
-    let line=d.proc+" "+Math.min(done+1,N)+" "+d.of+" "+N;
+  for(let i=0;i<N;i++) setStatus(i,"queued");
+  const start=Date.now(),results=[],failures=[];let doneCount=0;
+  function paint(idx,frac){
+    pfill.style.width=(Math.min(1,(doneCount+frac)/N)*100).toFixed(1)+"%";
+    let line=d.proc+" "+Math.min(idx+1,N)+" "+d.of+" "+N;
     if(N>1){
-      if(done>0){const per=(Date.now()-start)/done/1000;
-        line+=" - "+d.eta_prefix+" "+fmtTime(per*(N-done))+" "+d.eta_suffix;}
+      if(doneCount>0){const per=(Date.now()-start)/doneCount/1000;
+        line+=" - "+d.eta_prefix+" "+fmtTime(per*(N-doneCount))+" "+d.eta_suffix;}
       else line+=" - "+d.estimating;
     }
     ptext.textContent=line;
   }
   paint(0,0);
   for(let i=0;i<N;i++){
-    try{const r=await sendOne(files[i],f=>paint(i,f));results.push(r);}
-    catch(err){failures.push(files[i].name+": "+err.message);}
-    paint(i+1,0);
+    if(cancelReq)break;
+    setStatus(i,"proc");
+    try{const r=await sendOne(files[i],f=>paint(i,f));results.push(r);setStatus(i,"done");}
+    catch(err){
+      if(err.message==="__cancel__"){setStatus(i,"queued");break;}
+      failures.push(files[i].name+": "+tErr(err.message));setStatus(i,"failed");
+    }
+    doneCount++;paint(doneCount,0);
   }
-  prog.classList.remove("on");go.disabled=false;go.textContent=label;
+  busy=false;currentXhr=null;go.hidden=false;go.disabled=false;cancelBtn.hidden=true;
+  prog.classList.remove("on");
+  if(cancelReq){setMsg("info",d.cancelled);return;}
   if(results.length===0){setMsg("err",d.err+": "+failures.join(" | "));return;}
   if(results.length===1&&failures.length===0){
     download(results[0].blob,results[0].name);setMsg("ok",d.done);return;
@@ -521,8 +641,32 @@ form.addEventListener("submit",async e=>{
   setMsg(failures.length?"err":"ok",m);
 });
 
+/* ---------------- settings persistence ---------------- */
+const SKEY="fz_settings";
+function saveSettings(){try{localStorage.setItem(SKEY,JSON.stringify({
+  text:text.value,gouv:gouv.checked,opacity:opacity.value,rotation:rotation.value,
+  color:color.value,dpi:dpiEl.value,quality:qualEl.value,font_size:fontEl.value,
+  page_size:pageEl.value,suffix:suffixEl.value}));}catch(_){}}
+function loadSettings(){let v;try{v=JSON.parse(localStorage.getItem(SKEY)||"null");}catch(_){v=null;}
+  if(!v)return;
+  if(v.text!=null)text.value=v.text;
+  if(typeof v.gouv==="boolean")gouv.checked=v.gouv;
+  if(v.opacity!=null)opacity.value=v.opacity;
+  if(v.rotation!=null)rotation.value=v.rotation;
+  if(v.color!=null)color.value=v.color;
+  if(v.dpi!=null)dpiEl.value=v.dpi;
+  if(v.quality!=null)qualEl.value=v.quality;
+  if(v.font_size!=null)fontEl.value=v.font_size;
+  if(v.page_size!=null)pageEl.value=v.page_size;
+  if(v.suffix!=null)suffixEl.value=v.suffix;}
+
 /* ---------------- init ---------------- */
-applyTheme();applyLang();showOp();showCol();draw();
+loadSettings();
+applyTheme();applyLang();showOp();showCol();draw();render();
+[opacity,rotation,color,text,fontEl,dpiEl,qualEl,pageEl,suffixEl].forEach(
+  el=>el.addEventListener("input",saveSettings));
+[dpiEl,qualEl,pageEl,suffixEl].forEach(el=>el.addEventListener("change",saveSettings));
+gouv.addEventListener("change",saveSettings);
 </script>
 </body>
 </html>

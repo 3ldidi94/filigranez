@@ -28,8 +28,12 @@ Needs `poppler-utils` on the host (`apt install poppler-utils`).
 
 - **Drag & drop multiple PDFs** - one file returns a PDF, several return a ZIP.
 - **Progress bar with ETA** when several files are processed (handled one by one, the ZIP is assembled in the browser).
-- **EN/FR** interface and **three themes** (AMOLED black default, grey, white), remembered per browser.
-- **Live preview** reflecting the current options (client-side approximation).
+- **Cancel button** to stop a running batch, with a **per-file status** (queued, processing, done, failed) in the list.
+- **Settings are remembered** in the browser (text, style, opacity, rotation, colour, DPI, quality, font size, page size, suffix).
+- Server error messages are **shown in French** when the interface is in French.
+- File list shows the **total size**, a **Clear all** button, and flags any file over the 100 MB per-file limit.
+- **EN/FR** interface and **three themes** (Black (OLED) default, grey, white), remembered per browser.
+- **Live preview of the real document**: the first page of the selected file is rendered with pdf.js (vendored locally in `static/vendor/`, no CDN) and the watermark is drawn on top, updating live with the options. With several files, click one in the list to preview it; with none, a mock page is shown.
 - Every CLI option is exposed (text, gouv, opacity, rotation, colour, DPI, quality, font size, page size, suffix).
 - Nothing is stored server-side: original and watermarked output live only in a temp dir wiped as soon as the download starts.
 
