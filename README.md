@@ -222,6 +222,8 @@ Pages are rendered and composited one at a time, so memory stays flat regardless
 
 ## Web interface
 
+![Web interface](images/web-interface.png)
+
 A small web front-end lives in [`web/`](web/), on top of the exact same engine - the CLI is unaffected and stays fully usable on its own. It offers:
 
 - **Drag & drop of several PDFs at once** - one file downloads as a PDF, several as a ZIP.
