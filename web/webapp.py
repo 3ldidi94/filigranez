@@ -15,6 +15,8 @@ import re
 import sys
 import tempfile
 import zipfile
+
+import pdf2image
 from pathlib import Path
 
 from flask import (Flask, jsonify, render_template, request,
@@ -33,6 +35,8 @@ MAX_MB = 100
 MAX_FILES = 50            # per request
 MAX_DPI = 600             # raster size guard (DoS / decompression bomb)
 MAX_FONT_SIZE = 2000
+MAX_PAGES = 200           # per file (DoS: huge page counts tie up a worker)
+MAX_SIDE_PX = 6000        # cap raster side (DoS: crafted giant MediaBox)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_MB * 1024 * 1024
@@ -44,6 +48,21 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_MB * 1024 * 1024
 # behaves exactly as before.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1,
                         x_prefix=1)
+
+
+@app.after_request
+def _security_headers(resp):
+    # Defence in depth (works even without the reverse proxy). No 'unsafe-eval'
+    # in the CSP, which also blocks the pdf.js eval-based attack path.
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "SAMEORIGIN"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+        "worker-src 'self' blob:; connect-src 'self'; object-src 'none'; "
+        "base-uri 'self'; frame-ancestors 'none'")
+    return resp
 
 # Defaults surfaced to the form, read from the module so they can never fall out
 # of step with the CLI.
@@ -68,6 +87,31 @@ def _safe_suffix(raw: str) -> str:
     separators) or header/control-char injection; keep it short."""
     s = re.sub(r"[/\\\x00-\x1f]", "_", raw or "").strip().strip(".")
     return s[:60] or "watermark"
+
+
+def _bounded_dpi(src, dpi):
+    """Read the PDF's own geometry and clamp work to safe bounds: reject huge
+    page counts, and lower the effective DPI so a crafted giant MediaBox cannot
+    blow up the raster (OOM / decompression bomb)."""
+    try:
+        info = pdf2image.pdfinfo_from_path(str(src))
+    except Exception:
+        raise RuntimeError("unreadable or corrupt PDF")
+    try:
+        pages = int(info.get("Pages", 0))
+    except (TypeError, ValueError):
+        pages = 0
+    if pages > MAX_PAGES:
+        raise ValueError(f"too many pages (max {MAX_PAGES})")
+    eff = dpi
+    m = re.match(r"\s*([\d.]+)\s*x\s*([\d.]+)", str(info.get("Page size", "")))
+    if m:
+        longest_in = max(float(m.group(1)), float(m.group(2))) / 72.0
+        if longest_in > 0:
+            cap = int(MAX_SIDE_PX / longest_in)
+            if cap < eff:
+                eff = max(1, cap)
+    return eff
 
 
 def _num(name, cast, default=None):
@@ -137,7 +181,8 @@ def watermark():
                 src = Path(tmp) / f"in_{i}.pdf"
                 out = Path(tmp) / f"out_{i}.pdf"
                 upload.save(src)
-                fz.watermark_pdf(src, text, str(out), opacity, rotation, dpi,
+                eff_dpi = _bounded_dpi(src, dpi)
+                fz.watermark_pdf(src, text, str(out), opacity, rotation, eff_dpi,
                                  font_size, rgb, quality, None, style, page_size)
                 stem = Path(secure_filename(upload.filename)).stem or "document"
                 name = f"{stem}_{suffix}.pdf"
@@ -164,7 +209,8 @@ def watermark():
     except ValueError as e:                # validation / bad input
         return jsonify(error=str(e)), 400
     except RuntimeError as e:              # bad/corrupt PDF, or poppler missing
-        return jsonify(error=str(e)), 400
+        app.logger.warning("watermark runtime error: %s", e)
+        return jsonify(error="unreadable or corrupt PDF"), 400
     except Exception:                      # never leak internals to the client
         app.logger.exception("watermark failed")
         return jsonify(error="could not process the document"), 500
@@ -177,4 +223,5 @@ def _too_large(_e):
 
 if __name__ == "__main__":
     # Dev server only; production runs under gunicorn (see Dockerfile).
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8010)), debug=False)
+    app.run(host=os.environ.get("BIND", "127.0.0.1"),
+            port=int(os.environ.get("PORT", 8010)), debug=False)

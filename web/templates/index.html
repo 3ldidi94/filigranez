@@ -400,7 +400,7 @@ async function loadPage(f){
   if(pageCache.has(k)) return pageCache.get(k);
   try{
     const buf=await f.arrayBuffer();
-    const doc=await pdfjsLib.getDocument({data:buf}).promise;
+    const doc=await pdfjsLib.getDocument({data:buf,isEvalSupported:false}).promise;
     const page=await doc.getPage(1);
     const BW=620,vp1=page.getViewport({scale:1}),scale=BW/vp1.width;
     const vp=page.getViewport({scale});
@@ -543,6 +543,8 @@ const FR_ERR=[
   [/^not a PDF: (.+)$/,"ce n'est pas un PDF : $1"],
   [/^the file must be a \.pdf$/,"le fichier doit être un .pdf"],
   [/^cannot read PDF.*/,"PDF illisible ou corrompu"],
+  [/^unreadable or corrupt PDF$/,"PDF illisible ou corrompu"],
+  [/^too many pages \(max (\d+)\)$/,"trop de pages (maximum $1)"],
   [/^upload too large.*/,"envoi trop volumineux (limite 100 Mo)"],
   [/^could not process the document$/,"impossible de traiter le document"]
 ];

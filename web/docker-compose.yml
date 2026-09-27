@@ -4,6 +4,8 @@ services:
       context: ..            # repo root, so filigranez.py is in scope
       dockerfile: web/Dockerfile
     image: filigranez-web
+    environment:
+      - BIND=0.0.0.0   # reseau bridge + mapping de ports (isole); en host, garder 127.0.0.1
     container_name: filigranez-web
     ports:
       - "8010:8010"

@@ -1,8 +1,8 @@
-![filigranez](logo-dark.png)
+![filigranez](images/logo-dark.png)
 
 PDF watermarking tool. The watermark is baked directly into the page pixels - it cannot be removed by editing PDF objects, deleting layers, or copying text out.
 
-![Before / After](example.png)
+![Before / After](images/example.png)
 
 ```bash
 python filigranez.py facture.pdf "CONFIDENTIEL"
@@ -69,7 +69,7 @@ Values are validated before any work starts, so a typo fails immediately rather 
 
 The same invoice, six settings:
 
-![Option gallery](example-options.png)
+![Option gallery](images/example-options.png)
 
 ```bash
 python filigranez.py facture.pdf "CONFIDENTIEL"
@@ -88,7 +88,7 @@ A low `--opacity` keeps the document comfortable to read; a large `--font-size` 
 
 `--gouv` swaps the tiled stamp for a second style, matched against the watermark produced by [filigrane.beta.gouv.fr](https://filigrane.beta.gouv.fr) - the French service people use to mark ID documents and payslips before sending them to a landlord or an agency.
 
-![The --gouv style](example-gouv.png)
+![The --gouv style](images/example-gouv.png)
 
 ```bash
 python filigranez.py piece-identite.pdf "document destiné exclusivement à la location" --gouv
@@ -109,7 +109,7 @@ The wave amplitude, the ink order and the per-line weight are derived from the w
 
 By default the input page size is preserved. Pass `--page-size a4` to normalise every page to A4:
 
-![Page size](example-pagesize.png)
+![Page size](images/example-pagesize.png)
 
 Pages are scaled to fit and centred, keeping their aspect ratio - nothing is stretched or cropped, so a Letter page comes out as A4 with a white band top and bottom. A page that is already A4 passes through untouched rather than being resampled, and a landscape page becomes landscape A4 rather than being rotated. Normalisation happens before the watermark is drawn, so the watermark covers the added margins too.
 
@@ -147,7 +147,7 @@ python filigranez.py ./dossiers/ "CONFIDENTIEL" --suffix-name confidentiel
 
 ## Output
 
-![Terminal output](output-example.png)
+![Terminal output](images/output-example.png)
 
 The progress bar follows the actual work rather than the page count, so it still moves on a single-page document. It disappears when output is redirected to a file or a pipe, where one line per page is printed instead, without escape codes. Colors are dropped when `NO_COLOR` is set, and box-drawing characters fall back to plain ASCII on consoles that cannot encode them.
 
