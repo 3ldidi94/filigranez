@@ -80,6 +80,13 @@
     border:1px solid var(--err);color:var(--err)}
   .msg.ok{display:block;background:color-mix(in srgb,var(--ok) 14%,transparent);
     border:1px solid var(--ok);color:var(--ok)}
+  .prog{margin:14px 0 0;display:none}
+  .prog.on{display:block}
+  .prog .bar{height:10px;background:var(--field);border:1px solid var(--line);
+    border-radius:6px;overflow:hidden}
+  .prog .fill{height:100%;width:0;background:var(--accent);transition:width .2s}
+  .prog .ptext{margin-top:6px;font-size:13px;color:var(--muted);
+    font-variant-numeric:tabular-nums}
   .privacy{color:var(--muted);font-size:12.5px;margin:14px 0 0;display:flex;gap:8px}
   .privacy svg{flex:none;margin-top:1px}
   .preview-card canvas{width:100%;height:auto;border:1px solid var(--line);
@@ -199,6 +206,8 @@
       </details>
 
       <button type="submit" class="go" id="go" data-i18n="btn">Watermark</button>
+      <div class="prog" id="prog"><div class="bar"><div class="fill" id="pfill"></div></div>
+        <div class="ptext" id="ptext"></div></div>
       <div class="msg" id="msg"></div>
 
       <p class="privacy">
@@ -238,7 +247,10 @@ const I18N = {
     privacy:"No file is kept on the server. Neither the original nor the watermarked file is stored. Both are deleted right after your download.",
     foot:'Same engine as the CLI: <code>filigranez.py doc.pdf "TEXT"</code>',
     working:"Working...",done:"Done. Your download is starting.",
-    need_file:"Please add at least one PDF file.",err:"Error"},
+    need_file:"Please add at least one PDF file.",err:"Error",
+    proc:"Processing",of:"of",eta_prefix:"about",eta_suffix:"left",
+    estimating:"estimating time...",zipping:"Preparing the ZIP...",
+    failed_prefix:"could not be processed:",done_zip:"Done. Your ZIP download is starting."},
   fr:{th_amoled:"Noir AMOLED",th_grey:"Gris",th_white:"Blanc",h_settings:"Paramètres",
     l_files:"Documents (PDF)",drop_big:"Déposez vos fichiers PDF ici",
     drop_small:"ou cliquez pour choisir, plusieurs fichiers possibles",l_text:"Texte du filigrane",
@@ -252,7 +264,10 @@ const I18N = {
     privacy:"Aucun fichier n'est conservé sur le serveur. Ni l'original, ni le fichier filigrané ne sont stockés. Les deux sont supprimés juste après votre téléchargement.",
     foot:'Même moteur que la CLI : <code>filigranez.py doc.pdf "TEXTE"</code>',
     working:"Traitement...",done:"Terminé. Votre téléchargement démarre.",
-    need_file:"Ajoutez au moins un fichier PDF.",err:"Erreur"}
+    need_file:"Ajoutez au moins un fichier PDF.",err:"Erreur",
+    proc:"Traitement",of:"sur",eta_prefix:"environ",eta_suffix:"restant",
+    estimating:"estimation du temps...",zipping:"Préparation du ZIP...",
+    failed_prefix:"n'a pas pu être traité :",done_zip:"Terminé. Le téléchargement du ZIP démarre."}
 };
 const $ = s => document.querySelector(s);
 let lang = localStorage.getItem("fz_lang") || "en";
@@ -386,36 +401,124 @@ function drawGouv(W,H,txt){
   el.addEventListener("input",()=>{showOp();showCol();draw();});
 });
 
-/* ---------------- submit via fetch ---------------- */
-const form=$("#form"),go=$("#go"),msg=$("#msg");
+/* ---------------- crc32 + minimal store ZIP (no dependency) ---------------- */
+const CRC_T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;
+  for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)
+  c=CRC_T[(c^u8[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function zipStore(entries){
+  const enc=new TextEncoder(),chunks=[],central=[];let offset=0,n=0;
+  const push=a=>{chunks.push(a);offset+=a.length;};
+  for(const {name,data} of entries){
+    const nb=enc.encode(name),crc=crc32(data),sz=data.length,lo=offset;
+    const lh=new Uint8Array(30),d=new DataView(lh.buffer);
+    d.setUint32(0,0x04034b50,true);d.setUint16(4,20,true);d.setUint16(6,0x0800,true);
+    d.setUint16(8,0,true);d.setUint16(10,0,true);d.setUint16(12,0,true);
+    d.setUint32(14,crc,true);d.setUint32(18,sz,true);d.setUint32(22,sz,true);
+    d.setUint16(26,nb.length,true);d.setUint16(28,0,true);
+    push(lh);push(nb);push(data);
+    const ch=new Uint8Array(46),cv=new DataView(ch.buffer);
+    cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);
+    cv.setUint16(8,0x0800,true);cv.setUint16(10,0,true);cv.setUint16(12,0,true);
+    cv.setUint16(14,0,true);cv.setUint32(16,crc,true);cv.setUint32(20,sz,true);
+    cv.setUint32(24,sz,true);cv.setUint16(28,nb.length,true);cv.setUint16(30,0,true);
+    cv.setUint16(32,0,true);cv.setUint16(34,0,true);cv.setUint16(36,0,true);
+    cv.setUint32(38,0,true);cv.setUint32(42,lo,true);
+    central.push({ch,nb});n++;
+  }
+  const cdStart=offset;let cdSize=0;
+  for(const {ch,nb} of central){push(ch);push(nb);cdSize+=ch.length+nb.length;}
+  const eo=new Uint8Array(22),ev=new DataView(eo.buffer);
+  ev.setUint32(0,0x06054b50,true);ev.setUint16(4,0,true);ev.setUint16(6,0,true);
+  ev.setUint16(8,n,true);ev.setUint16(10,n,true);ev.setUint32(12,cdSize,true);
+  ev.setUint32(16,cdStart,true);ev.setUint16(20,0,true);
+  push(eo);
+  return new Blob(chunks,{type:"application/zip"});
+}
+
+/* ---------------- submit: one request per file, progress + ETA ---------------- */
+const form=$("#form"),go=$("#go"),msg=$("#msg"),prog=$("#prog"),
+      pfill=$("#pfill"),ptext=$("#ptext"),pageEl=$("#page_size"),
+      suffixEl=$("#suffix"),dpiEl=$("#dpi"),qualEl=$("#quality");
 function setMsg(kind,txt){msg.className="msg "+(kind||"");msg.textContent=txt||"";}
-function filenameFrom(res,fallback){
-  const cd=res.headers.get("Content-Disposition")||"";
+function fmtTime(s){s=Math.max(0,Math.round(s));const m=Math.floor(s/60),r=s%60;
+  return m>0?(m+":"+String(r).padStart(2,"0")):(r+"s");}
+function cdName(xhr,fallback){
+  const cd=xhr.getResponseHeader("Content-Disposition")||"";
   const m=cd.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
-  return m?decodeURIComponent(m[1]):fallback;
+  return m?decodeURIComponent(m[1]):fallback;}
+function sendOne(file,onprog){
+  return new Promise((resolve,reject)=>{
+    const fd=new FormData();
+    fd.append("text",text.value);
+    if(gouv.checked) fd.append("gouv","on");
+    fd.append("opacity",opacity.value);fd.append("rotation",rotation.value);
+    fd.append("color",color.value);fd.append("dpi",dpiEl.value);
+    fd.append("quality",qualEl.value);
+    if(fontEl.value) fd.append("font_size",fontEl.value);
+    fd.append("page_size",pageEl.value);fd.append("suffix",suffixEl.value);
+    fd.append("pdf",file,file.name);
+    const xhr=new XMLHttpRequest();
+    xhr.open("POST",form.action);xhr.responseType="blob";
+    xhr.upload.onprogress=ev=>{if(ev.lengthComputable&&onprog)onprog(ev.loaded/ev.total);};
+    xhr.onload=()=>{
+      if(xhr.status>=200&&xhr.status<300){
+        const fb=file.name.replace(/\.pdf$/i,"")+"_watermark.pdf";
+        resolve({name:cdName(xhr,fb),blob:xhr.response});
+      }else{
+        xhr.response.text().then(t=>{let m=I18N[lang].err;
+          try{m=JSON.parse(t).error||m;}catch(_){}reject(new Error(m));})
+          .catch(()=>reject(new Error("HTTP "+xhr.status)));
+      }
+    };
+    xhr.onerror=()=>reject(new Error("network error"));
+    xhr.send(fd);
+  });
+}
+function download(blob,name){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download=name;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
 }
 form.addEventListener("submit",async e=>{
   e.preventDefault();
   if(files.length===0){setMsg("err",I18N[lang].need_file);return;}
-  setMsg("","");go.disabled=true;const label=go.textContent;go.textContent=I18N[lang].working;
-  try{
-    const fd=new FormData(form);        // includes files (input synced) + fields
-    const res=await fetch(form.action,{method:"POST",body:fd});
-    if(!res.ok){
-      let m=I18N[lang].err;
-      try{const j=await res.json();if(j.error)m=j.error;}catch(_){}
-      setMsg("err",m);return;
+  const d=I18N[lang],N=files.length;
+  setMsg("","");go.disabled=true;const label=go.textContent;go.textContent=d.working;
+  prog.classList.add("on");pfill.style.width="0%";
+  const start=Date.now(),results=[],failures=[];
+  function paint(done,frac){
+    const overall=Math.min(1,(done+frac)/N);
+    pfill.style.width=(overall*100).toFixed(1)+"%";
+    let line=d.proc+" "+Math.min(done+1,N)+" "+d.of+" "+N;
+    if(N>1){
+      if(done>0){const per=(Date.now()-start)/done/1000;
+        line+=" - "+d.eta_prefix+" "+fmtTime(per*(N-done))+" "+d.eta_suffix;}
+      else line+=" - "+d.estimating;
     }
-    const blob=await res.blob();
-    const fallback=files.length>1?"filigranez.zip":"watermarked.pdf";
-    const name=filenameFrom(res,fallback);
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");a.href=url;a.download=name;
-    document.body.appendChild(a);a.click();a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url),4000);
-    setMsg("ok",I18N[lang].done);
-  }catch(err){setMsg("err",String(err));}
-  finally{go.disabled=false;go.textContent=label;}
+    ptext.textContent=line;
+  }
+  paint(0,0);
+  for(let i=0;i<N;i++){
+    try{const r=await sendOne(files[i],f=>paint(i,f));results.push(r);}
+    catch(err){failures.push(files[i].name+": "+err.message);}
+    paint(i+1,0);
+  }
+  prog.classList.remove("on");go.disabled=false;go.textContent=label;
+  if(results.length===0){setMsg("err",d.err+": "+failures.join(" | "));return;}
+  if(results.length===1&&failures.length===0){
+    download(results[0].blob,results[0].name);setMsg("ok",d.done);return;
+  }
+  ptext.textContent=d.zipping;prog.classList.add("on");pfill.style.width="100%";
+  const entries=[];
+  for(const r of results) entries.push({name:r.name,data:new Uint8Array(await r.blob.arrayBuffer())});
+  const zname="filigranez_"+((suffixEl.value||"watermark").replace(/[\/\\]+/g,"_"))+".zip";
+  download(zipStore(entries),zname);
+  prog.classList.remove("on");
+  let m=d.done_zip;
+  if(failures.length) m+=" ("+failures.length+" "+d.failed_prefix+" "+failures.join(" | ")+")";
+  setMsg(failures.length?"err":"ok",m);
 });
 
 /* ---------------- init ---------------- */

@@ -27,6 +27,7 @@ Needs `poppler-utils` on the host (`apt install poppler-utils`).
 ## Notes
 
 - **Drag & drop multiple PDFs** - one file returns a PDF, several return a ZIP.
+- **Progress bar with ETA** when several files are processed (handled one by one, the ZIP is assembled in the browser).
 - **EN/FR** interface and **three themes** (AMOLED black default, grey, white), remembered per browser.
 - **Live preview** reflecting the current options (client-side approximation).
 - Every CLI option is exposed (text, gouv, opacity, rotation, colour, DPI, quality, font size, page size, suffix).
