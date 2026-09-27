@@ -28,7 +28,7 @@ from typing import Optional
 
 try:
     from PIL import (Image, ImageChops, ImageColor, ImageDraw, ImageFilter,
-                     ImageFont)
+                     ImageFont, ImageOps)
     import pdf2image
     import img2pdf
 except ImportError as e:
@@ -211,6 +211,15 @@ CLASSIC_FONT_DIV  = 18
 CLASSIC_COLOR     = "#DC1414"
 CLASSIC_OPACITY   = 0.5
 CLASSIC_ROTATION  = 45.0
+# Invisible tracing layer: a faint tiled copy of the watermark text at a distinct
+# angle, imperceptible to the eye but recoverable by contrast analysis (--reveal).
+# On by default; --no-hidden turns it off. Payload = the watermark text. This is
+# the low-opacity variant; a robust DCT/spread-spectrum layer can be added on top
+# later without changing this.
+HIDDEN_OPACITY    = 0.02
+HIDDEN_ROTATION   = -8.0
+HIDDEN_FONT_DIV   = 30
+HIDDEN_COLOR      = (0, 0, 0)
 
 
 # The reference sets its watermark in an Arial-metric face, not in DejaVu:
@@ -455,6 +464,7 @@ def watermark_pdf(
     style: str = "classic",
     page_size: str = "keep",
     nested: bool = False,
+    hidden: bool = True,
 ) -> None:
     info(f"Loading  : {C.WHITE}{C.BOLD}{input_path}{C.RESET}")
 
@@ -483,6 +493,7 @@ def watermark_pdf(
 
         font_div = GOUV_FONT_DIV if style == "gouv" else CLASSIC_FONT_DIV
         layer_cache = {}
+        hidden_cache = {}
         img_paths = []
         # A page is worth 1 on the bar, most of it spent drawing the watermark
         # layer, so that share is handed out row by row while it is built.
@@ -515,7 +526,18 @@ def watermark_pdf(
                 layer_cache[key] = layer
             elif bar is not None:
                 bar.update(LAYER_SHARE)   # reused layer: that work is free
-            result = Image.alpha_composite(page, layer).convert("RGB")
+            composed = Image.alpha_composite(page, layer)
+            if hidden:
+                hkey = (page.width, page.height)
+                hlayer = hidden_cache.get(hkey)
+                if hlayer is None:
+                    hfont = max(12, page.width // HIDDEN_FONT_DIV)
+                    hlayer = make_watermark_layer(
+                        page.width, page.height, text, HIDDEN_OPACITY,
+                        HIDDEN_ROTATION, hfont, HIDDEN_COLOR, "classic")
+                    hidden_cache[hkey] = hlayer
+                composed = Image.alpha_composite(composed, hlayer)
+            result = composed.convert("RGB")
 
             out_jpg = os.path.join(tmpdir, f"page_{i:04d}.jpg")
             # Embed the DPI so img2pdf sizes the PDF page correctly. Without it
@@ -536,6 +558,45 @@ def watermark_pdf(
         with open(output_path, "wb") as f:
             f.write(img2pdf.convert(img_paths))
 
+    info(f"Output   : {C.BLUE}{C.BOLD}{output_path}{C.RESET}")
+
+
+def reveal_pdf(input_path: Path, output_path: str, dpi: int,
+               poppler_path: Optional[str] = None) -> None:
+    """Expose the invisible tracing layer so it can be read. High-passes each
+    page (residual against a local mean) and stretches it: on the light areas the
+    faint tiled payload text becomes legible."""
+    info(f"Revealing: {C.WHITE}{C.BOLD}{input_path}{C.RESET}")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        kwargs = {"dpi": dpi, "output_folder": tmpdir,
+                  "paths_only": True, "fmt": "ppm"}
+        if poppler_path:
+            kwargs["poppler_path"] = poppler_path
+        try:
+            page_paths = pdf2image.convert_from_path(str(input_path), **kwargs)
+        except pdf2image.exceptions.PDFInfoNotInstalledError:
+            raise RuntimeError(
+                "poppler not found. Install it (e.g. 'apt install poppler-utils') "
+                "or pass --poppler-path to its bin directory.")
+        except (pdf2image.exceptions.PDFPageCountError,
+                pdf2image.exceptions.PDFSyntaxError) as e:
+            raise RuntimeError(f"cannot read PDF ({e})")
+
+        img_paths = []
+        for i, page_path in enumerate(page_paths):
+            with Image.open(page_path) as im:
+                gray = im.convert("L")
+            local = gray.filter(ImageFilter.GaussianBlur(8))
+            resid = ImageChops.subtract(local, gray)   # bright where locally darker
+            resid = ImageOps.autocontrast(resid, cutoff=0.5)
+            out_jpg = os.path.join(tmpdir, f"rev_{i:04d}.jpg")
+            resid.convert("RGB").save(out_jpg, "JPEG", quality=90, dpi=(dpi, dpi))
+            img_paths.append(out_jpg)
+            os.remove(page_path)
+
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        with open(output_path, "wb") as fh:
+            fh.write(img2pdf.convert(img_paths))
     info(f"Output   : {C.BLUE}{C.BOLD}{output_path}{C.RESET}")
 
 
@@ -603,7 +664,7 @@ Examples:
         """,
     )
     parser.add_argument("input",  help="Input PDF file or directory")
-    parser.add_argument("text",   help="Watermark text")
+    parser.add_argument("text",   nargs="?", help="Watermark text (also the hidden payload)")
     parser.add_argument("output", nargs="?", help="Output PDF (single file mode only)")
     parser.add_argument("--gouv",         "-g", action="store_true",
                         help="filigrane.beta.gouv.fr style: dense staggered grey "
@@ -632,8 +693,32 @@ Examples:
                         metavar="SUFFIX", help="Suffix appended to filename (default: watermark)")
     parser.add_argument("--poppler-path", "-p", type=str,   default=None,
                         metavar="PATH",   help="Path to poppler bin directory (Windows)")
+    parser.add_argument("--no-hidden",    action="store_true",
+                        help="disable the invisible tracing layer (on by default)")
+    parser.add_argument("--reveal",       action="store_true",
+                        help="reveal INPUT's invisible layer into a PDF for analysis")
 
     args = parser.parse_args()
+
+    # Reveal mode: read back the invisible layer, no watermarking parameters needed.
+    if args.reveal:
+        rin = Path(args.input)
+        if not rin.is_file():
+            error("--reveal expects a single PDF file")
+            sys.exit(1)
+        rout = args.output or args.text or str(
+            rin.parent / f"{rin.stem}_revealed.pdf")
+        try:
+            reveal_pdf(rin, rout, args.dpi, args.poppler_path)
+        except RuntimeError as e:
+            error(str(e))
+            sys.exit(1)
+        return
+
+    if not args.text:
+        error("watermark text is required")
+        sys.exit(1)
+    hidden = not args.no_hidden
 
     # Per-style defaults and validation live in resolve_params(), shared with
     # the web front-end; explicit flags always win, in either style.
@@ -671,7 +756,7 @@ Examples:
                 watermark_pdf(pdf, args.text, str(out), args.opacity, args.rotation,
                               args.dpi, args.font_size, color, args.quality,
                               args.poppler_path, style, args.page_size,
-                              nested=True)
+                              nested=True, hidden=hidden)
             except RuntimeError as e:
                 error(f"Skipping {pdf}: {e}")
                 failures += 1
@@ -688,7 +773,8 @@ Examples:
         try:
             watermark_pdf(input_path, args.text, out, args.opacity, args.rotation,
                           args.dpi, args.font_size, color, args.quality,
-                          args.poppler_path, style, args.page_size)
+                          args.poppler_path, style, args.page_size,
+                          hidden=hidden)
         except RuntimeError as e:
             error(str(e))
             sys.exit(1)

@@ -58,6 +58,8 @@ filigranez.py <input> <text> [output] [options]
 | `--page-size` | `-P` | `keep` | `keep` preserves the input page size, `a4` normalises every page to A4 |
 | `--quality` | `-q` | `95` | JPEG quality, 1-95. Lower means a smaller file |
 | `--suffix-name` | `-s` | `watermark` | Suffix appended to output names |
+| `--no-hidden` | | off | Disable the invisible tracing layer (on by default) |
+| `--reveal` | | off | Read back the invisible layer of INPUT into a PDF for analysis |
 | `--poppler-path` | `-p` | - | Path to poppler's `bin/` directory (Windows) |
 | `--help` | `-h` | - | Full list of flags |
 
@@ -179,6 +181,23 @@ python filigranez.py facture.pdf "DRAFT" --poppler-path "C:/poppler/bin"
 ```
 
 ---
+
+## Invisible tracing (leak tracing)
+
+On top of the visible watermark, every output also carries an **invisible tracing layer**: a very faint, tiled copy of the watermark text, at a different angle, imperceptible to the eye but recoverable by analysis. It is **on by default** (the payload is the watermark text) and survives casual handling such as recompression or a screenshot.
+
+The point: if an attacker removes the visible watermark and a still-usable document leaks, the hidden layer can tie the leak back to what was marked.
+
+Read it back with `--reveal`, which produces an enhanced PDF where the hidden text becomes legible:
+
+```bash
+python filigranez.py leaked.pdf --reveal            # -> leaked_revealed.pdf
+python filigranez.py leaked.pdf out.pdf --reveal    # explicit output
+```
+
+Turn the layer off with `--no-hidden` (the output is then byte-for-byte the classic result).
+
+Honest limits: this is the low-opacity variant. It resists recompression, screenshots and moderate resizing, but not aggressive cropping, rotation, or a full re-creation of the document (retyping). A more robust, geometry-resistant layer (DCT spread-spectrum) can be added on top later without changing this behaviour.
 
 ## How it works
 

@@ -36,6 +36,7 @@ Needs `poppler-utils` on the host (`apt install poppler-utils`).
 - **Live preview of the real document**: the first page of the selected file is rendered with pdf.js (vendored locally in `static/vendor/`, no CDN) and the watermark is drawn on top, updating live with the options. With several files, click one in the list to preview it; with none, a mock page is shown.
 - Every CLI option is exposed (text, gouv, opacity, rotation, colour, DPI, quality, font size, page size, suffix).
 - Nothing is stored server-side: original and watermarked output live only in a temp dir wiped as soon as the download starts.
+- Every output also carries an **invisible tracing layer** (a faint, recoverable copy of the watermark text) so a leak can be traced even if the visible mark is removed. Read it back with the CLI `--reveal`.
 
 ### Limits & hardening
 

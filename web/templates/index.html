@@ -110,7 +110,11 @@
   .privacy svg{flex:none;margin-top:1px}
   .preview-card canvas{width:100%;height:auto;border:1px solid var(--line);
     border-radius:8px;background:#fff;display:block}
-  .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:22px}
+  .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:30px}
+  .foot .slogan{color:var(--ink);font-size:14.5px;font-weight:600;line-height:1.45;
+    max-width:520px;margin:0 auto 14px}
+  .foot .gh{display:inline-flex;margin:0 auto 12px}
+  .foot .cli{margin:0}
   .foot code{background:var(--field);padding:1px 5px;border-radius:4px}
 </style>
 </head>
@@ -128,12 +132,6 @@
         <option value="grey"   data-i18n="th_grey">Grey</option>
         <option value="white"  data-i18n="th_white">White</option>
       </select>
-      <a class="gh" id="gh" href="https://github.com/3ldidi94/filigranez"
-         target="_blank" rel="noopener" title="GitHub">
-        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
-        </svg>
-      </a>
     </div>
   </header>
 
@@ -249,8 +247,17 @@
     </div>
   </div>
 
-  <p class="foot" data-i18n-html="foot">Same engine as the CLI:
-    <code>filigranez.py doc.pdf "TEXT"</code></p>
+  <footer class="foot">
+    <p class="slogan" data-i18n="slogan">Your documents, your control. Watermarked in seconds, never stored.</p>
+    <a class="gh" id="gh" href="https://github.com/3ldidi94/filigranez"
+         target="_blank" rel="noopener" title="GitHub">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+        </svg>
+      </a>
+    <p class="cli" data-i18n-html="foot">Same engine as the CLI:
+      <code>filigranez.py doc.pdf "TEXT"</code></p>
+  </footer>
 </div>
 
 <script src="{{ url_for('static', filename='vendor/pdf.min.js') }}"></script>
@@ -276,7 +283,8 @@ const I18N = {
     failed_prefix:"could not be processed:",done_zip:"Done. Your ZIP download is starting.",
     cancel:"Cancel",cancelled:"Cancelled",clear:"Clear all",st_queued:"queued",
     st_proc:"processing",st_done:"done",st_failed:"failed",files_word:"files",
-    total_word:"total"},
+    total_word:"total",
+    slogan:"Your documents, your control, your choice. Watermarked in seconds, never stored."},
   fr:{th_oled:"Noir (OLED)",th_grey:"Gris",th_white:"Blanc",h_settings:"Paramètres",
     l_files:"Documents (PDF)",drop_big:"Déposez vos fichiers PDF ici",
     drop_small:"ou cliquez pour choisir, plusieurs fichiers possibles",l_text:"Texte du filigrane",
@@ -296,7 +304,8 @@ const I18N = {
     failed_prefix:"n'a pas pu être traité :",done_zip:"Terminé. Le téléchargement du ZIP démarre.",
     cancel:"Annuler",cancelled:"Annulé",clear:"Tout effacer",st_queued:"en attente",
     st_proc:"en cours",st_done:"OK",st_failed:"échec",files_word:"fichiers",
-    total_word:"au total"}
+    total_word:"au total",
+    slogan:"Vos documents, votre contrôle, votre choix. Filigranés en un instant, jamais conservés."}
 };
 const $ = s => document.querySelector(s);
 function detectLang(){
